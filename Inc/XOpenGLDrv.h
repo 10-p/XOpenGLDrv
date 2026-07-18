@@ -31,8 +31,38 @@ using std::isfinite;
 #include "Render.h"
 #elif ENGINE_VERSION==1100
 #include "RenderPrivate.h"
+// ufront: vanilla UT99 v400 port (engine-ut99). v400 ships no separate public "Render.h"; the
+// software-renderer internals (FSceneNode/FSurfaceInfo/FSavedPoly/FTransTexture/etc.) live in
+// RenderPrivate.h — exactly as the reference NOpenGLESDrv includes it. Gated for a future v200 port.
+#elif ENGINE_VERSION==400
+#include "RenderPrivate.h"
 #endif
+// ufront (v400): RenderPrivate.h already pulls in the guard-less UnRender.h, so including it again
+// here would redefine URenderDevice/FSceneNode/etc. Skip the trailing include for v400 (the reference
+// NOpenGLESDrv includes RenderPrivate.h only, for exactly this reason).
+#if ENGINE_VERSION!=400
 #include "UnRender.h"
+#endif
+
+// ufront: vanilla UT99 v400 compatibility shims — driver-local, gated for a future v200 port. v400
+// Core lacks the Windows-style BOOL/TRUE/FALSE the fork uses pervasively, has no PF_None, and no
+// NAME_DevGraphics log category. Define them here (after Engine.h/RenderPrivate.h so UBOOL, the PF_
+// flags, and the EName enum are already visible). We deliberately do NOT modify the engine.
+#if ENGINE_VERSION==400
+typedef UBOOL BOOL;
+#ifndef TRUE
+#define TRUE 1
+#endif
+#ifndef FALSE
+#define FALSE 0
+#endif
+#ifndef PF_None
+#define PF_None 0
+#endif
+#ifndef NAME_DevGraphics
+#define NAME_DevGraphics NAME_Init
+#endif
+#endif
 
 #if !defined(SDL2BUILD) && !defined(SDL3BUILD)
 # ifdef __LINUX__

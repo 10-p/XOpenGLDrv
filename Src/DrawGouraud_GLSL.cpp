@@ -66,12 +66,44 @@ layout(location = 3) in vec2 TexCoords; // TexCoords
 layout(location = 4) in vec4 LightColor;
 layout(location = 5) in vec4 FogColor;
 
+// ufront: ES_WEBGL (WebGL2/GLES3.0) has no stage interface blocks (out VertexData {} needs ES3.1 /
+// GL_OES_shader_io_blocks), so it emits plain varyings and marshals them through a local struct named Out
+// (the shared main() body writes Out.Field unchanged). Core and desktop-ES 3.1 keep the io-block path.
+#if OPT_GLES_WEBGL
+struct VertexDataT
+{
+)";
+    Out << InterfaceBlockData;
+    Out << R"(
+};
+
+out vec2 gTexCoords;
+out vec3 gCoords;
+out vec4 gLightColor;
+out vec4 gFogColor;
+out vec4 gNormals;
+#if OPT_DetailTextures
+out vec2 gDetailTexCoords;
+#endif
+#if OPT_MacroTextures
+out vec2 gMacroTexCoords;
+#endif
+#if OPT_BumpMaps
+out mat3 gTBNMat;
+out vec3 gTangentViewPos;
+out vec3 gTangentFragPos;
+#endif
+#if OPT_DistanceFog || OPT_ClipDistance
+out vec4 gEyeSpacePos;
+#endif
+#else
 out VertexData
 {
 )";
     Out << InterfaceBlockData;
     Out << R"(
 } Out;
+#endif
 
 #if OPT_ClipDistance && !OPT_GeometryShaders
 out float gl_ClipDistance[OPT_MaxClippingPlanes];
@@ -79,6 +111,9 @@ out float gl_ClipDistance[OPT_MaxClippingPlanes];
 
 void main(void)
 {
+#if OPT_GLES_WEBGL
+  VertexDataT Out;
+#endif
   uint DrawFlags = GetDrawFlags(DrawID);
   Out.TexCoords = TexCoords * GetDiffuseInfo(DrawID).xy;
   Out.Coords = Coords;
@@ -128,6 +163,28 @@ void main(void)
 #if OPT_ClipDistance && !OPT_GeometryShaders
   uint ClipIndex = uint(ClipParams.x);
   gl_ClipDistance[ClipIndex] = PlaneDot(ClipPlane, Out.EyeSpacePos.xyz);
+#endif
+
+#if OPT_GLES_WEBGL
+  gTexCoords = Out.TexCoords;
+  gCoords = Out.Coords;
+  gLightColor = Out.LightColor;
+  gFogColor = Out.FogColor;
+  gNormals = Out.Normals;
+# if OPT_DetailTextures
+  gDetailTexCoords = Out.DetailTexCoords;
+# endif
+# if OPT_MacroTextures
+  gMacroTexCoords = Out.MacroTexCoords;
+# endif
+# if OPT_BumpMaps
+  gTBNMat = Out.TBNMat;
+  gTangentViewPos = Out.TangentViewPos;
+  gTangentFragPos = Out.TangentFragPos;
+# endif
+# if OPT_DistanceFog || OPT_ClipDistance
+  gEyeSpacePos = Out.EyeSpacePos;
+# endif
 #endif
 }
 )";
@@ -259,6 +316,36 @@ layout(location = 0, index = 1) out vec4 FragColor1;
 layout(location = 0, index = 0) out vec4 FragColor;
 #endif
 
+// ufront: ES_WEBGL marshals the inter-stage block into a local struct named In (the shared main() body
+// reads In.Field unchanged). Core and desktop-ES 3.1 keep the io-block.
+#if OPT_GLES_WEBGL
+struct VertexDataT
+{
+)";
+    Out << InterfaceBlockData;
+    Out << R"(
+};
+
+in vec2 gTexCoords;
+in vec3 gCoords;
+in vec4 gLightColor;
+in vec4 gFogColor;
+in vec4 gNormals;
+#if OPT_DetailTextures
+in vec2 gDetailTexCoords;
+#endif
+#if OPT_MacroTextures
+in vec2 gMacroTexCoords;
+#endif
+#if OPT_BumpMaps
+in mat3 gTBNMat;
+in vec3 gTangentViewPos;
+in vec3 gTangentFragPos;
+#endif
+#if OPT_DistanceFog || OPT_ClipDistance
+in vec4 gEyeSpacePos;
+#endif
+#else
 #if OPT_GeometryShaders
 in GeometryData
 #else
@@ -269,6 +356,7 @@ in VertexData
     Out << InterfaceBlockData;
     Out << R"(
 } In;
+#endif
 )";
 
     Out << R"(
@@ -280,6 +368,29 @@ uvec2 GetTexHandleHelper(uint DrawID, uint Index)
 
 void main(void)
 {
+#if OPT_GLES_WEBGL
+  VertexDataT In;
+  In.TexCoords = gTexCoords;
+  In.Coords = gCoords;
+  In.LightColor = gLightColor;
+  In.FogColor = gFogColor;
+  In.Normals = gNormals;
+# if OPT_DetailTextures
+  In.DetailTexCoords = gDetailTexCoords;
+# endif
+# if OPT_MacroTextures
+  In.MacroTexCoords = gMacroTexCoords;
+# endif
+# if OPT_BumpMaps
+  In.TBNMat = gTBNMat;
+  In.TangentViewPos = gTangentViewPos;
+  In.TangentFragPos = gTangentFragPos;
+# endif
+# if OPT_DistanceFog || OPT_ClipDistance
+  In.EyeSpacePos = gEyeSpacePos;
+# endif
+#endif
+
 #if OPT_GeometryShaders
   uint DrawID = gDrawID;
 #else

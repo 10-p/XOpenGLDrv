@@ -564,7 +564,13 @@ void main(void)
   vec4 FogColor = vec4(0.0);
 
   if ((DrawFlags & DF_FogMap) == DF_FogMap)
+# if OPT_GLES
+    // ufront (2.12): FogMap is TEXF_BGRA8_LM (engine BGRA byte order) and the ES uploader does NO R<->B swap,
+    // so swizzle .bgr here exactly like the LightMap fetch above; otherwise zone-fog tints are R/B-swapped.
+    FogColor = GetTexel(GetTexHandleHelper(vDrawID, FogMapIndex), TMUFogMap, vFogMapCoords).bgra * 2.0;
+# else
     FogColor = GetTexel(GetTexHandleHelper(vDrawID, FogMapIndex), TMUFogMap, vFogMapCoords) * 2.0;
+# endif
 
 #if OPT_EnvironmentMaps
   if ((DrawFlags & DF_EnvironmentMap) == DF_EnvironmentMap)

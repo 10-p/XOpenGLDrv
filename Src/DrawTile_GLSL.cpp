@@ -43,12 +43,19 @@ static const char* InterfaceBlockData = R"(
 void UXOpenGLRenderDevice::DrawTileESProgram::BuildVertexShader(GLuint ShaderType, UXOpenGLRenderDevice* GL, FShaderWriterX& Out)
 {
 	Out << R"(
+// ufront: ES_WEBGL (WebGL2 == GLES3.0) has no stage interface blocks (out/in VertexData{} needs
+// GL_OES_shader_io_blocks / ES3.1), so it emits a plain varying. The desktop ES (3.1) profile keeps the
+// upstream io-block path unchanged. The fragment only needs the tile TexCoords (EyeSpacePos is unused).
+#if OPT_GLES_WEBGL
+out vec4 gTileTexCoords;
+#else
 out VertexData
 {
 )";
 	Out << InterfaceBlockData;
 	Out << R"(
 } Out;
+#endif
 
 layout(location = 0) in vec3 Coords; // ==gl_Vertex
 layout(location = 1) in uint DrawID; // emulated gl_DrawID
@@ -56,8 +63,12 @@ layout(location = 2) in vec2 TexCoords;
 
 void main(void)
 {
+#if OPT_GLES_WEBGL
+  gTileTexCoords = vec4(TexCoords, 0.f, 0.f);
+#else
   Out.EyeSpacePos = modelviewMat * vec4(Coords, 1.0);
   Out.TexCoords = vec4(TexCoords, 0.f, 0.f);
+#endif
   gl_Position = modelviewprojMat * vec4(Coords, 1.0);
   vDrawID = DrawID;
 }
@@ -72,16 +83,24 @@ layout(location = 0) out vec4 FragColor;
 layout ( location = 1 ) out vec4 FragColor1;
 #endif
 
+#if OPT_GLES_WEBGL
+in vec4 gTileTexCoords;
+#else
 in VertexData
 {
 )";
 	Out << InterfaceBlockData;
 	Out << R"(
 } In;
+#endif
 void main(void)
-{	
-  vec4 TotalColor;
+{
+#if OPT_GLES_WEBGL
+  vec4 Color = GetTexel(GetTexHandle(vDrawID).xy, TMUDiffuse, gTileTexCoords.xy);
+#else
   vec4 Color = GetTexel(GetTexHandle(vDrawID).xy, TMUDiffuse, In.TexCoords.xy);
+#endif
+  vec4 TotalColor;
   uint DrawFlags = GetDrawFlags(vDrawID);
 
   TotalColor = ApplyPolyFlags(Color, DrawFlags) * GetDrawColor(vDrawID);

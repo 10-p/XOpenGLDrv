@@ -21,7 +21,7 @@ UBOOL UXOpenGLRenderDevice::GLExtensionSupported(FString ExtensionName)
 #if !_WIN32
     return SDL_GL_ExtensionSupported(appToAnsi(*ExtensionName));
 #else
-    return AllExtensions.InStr(*FString::Printf(TEXT("%ls "), *ExtensionName)) != -1;
+    return AllExtensions.InStr(*FString::Printf(TEXT("%s "), *ExtensionName)) != -1;
 #endif
 }
 
@@ -263,7 +263,16 @@ void UXOpenGLRenderDevice::CheckExtensions()
 		LODBias = 0;
 	}
 
-    if (!GLExtensionSupported(TEXT("GL_EXT_texture_compression_s3tc")))
+    if (!GLExtensionSupported(TEXT("GL_EXT_texture_compression_s3tc"))
+#if ENGINE_VERSION==400
+        // ufront (WebGL2/ES): ANGLE/WebGL exposes S3TC under the WebGL extension name, not the desktop EXT
+        // name, so the plain GL_EXT_ check fails and DXT1 textures fall back to a placeholder. Accept the
+        // WebGL name(s) too. The DXT format tokens (0x83F1..) are identical, and emscripten enables all
+        // reported extensions when the extension string is queried, so glCompressedTexImage2D just works.
+        && !GLExtensionSupported(TEXT("WEBGL_compressed_texture_s3tc"))
+        && !GLExtensionSupported(TEXT("GL_WEBGL_compressed_texture_s3tc"))
+#endif
+        )
 	{
 		GWarn->Logf(TEXT("XOpenGL: GL_EXT_texture_compression_s3tc extension not found!"));
         SupportsS3TC = false;
@@ -342,7 +351,19 @@ void UXOpenGLRenderDevice::CheckExtensions()
     debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_MAX_CLIP_DISTANCES found: %i"), MaxClippingPlanes);
 
     MaxUniformBlockSize = 0;
-    glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &MaxUniformBlockSize); //Check me!!! For whatever reason this appears to return on (some?) AMD drivers a value of 572657868
+    glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &MaxUniformBlockSize);
+    // ufront (2.12): AMD/Mesa drivers report GARBAGE for GL_MAX_UNIFORM_BLOCK_SIZE -- some return 572657868
+    // (~546 MB), and an AMD RX 6900 XT via Firefox (native Mesa) returns a value that reads as -4.
+    // GetMaximumUniformBufferSize() DIVIDES by this to size the per-draw UBO, so a bogus value yields a
+    // 0-element (or overflowing) uniform buffer -> every scene drawArraysInstanced is rejected by WebGL2
+    // ("Buffer for uniform block is smaller than UNIFORM_BLOCK_DATA_SIZE") -> BLACK screen. NVIDIA reports a
+    // sane 65536 and tolerates the rest, which is why this only bit AMD. The GL/WebGL2 spec GUARANTEES this
+    // is >= 16384; clamp any out-of-range value to a safe, universally-supported 65536.
+    if (MaxUniformBlockSize < 16384 || MaxUniformBlockSize > (16 * 1024 * 1024))
+    {
+        debugf(NAME_Warning, TEXT("XOpenGL: driver reported bogus GL_MAX_UNIFORM_BLOCK_SIZE %i; clamping to 65536 (AMD/Mesa driver bug)"), MaxUniformBlockSize);
+        MaxUniformBlockSize = 65536;
+    }
     debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxUniformBlockSize: %i"), MaxUniformBlockSize);
 
     INT MaxOutputComponents = 0;

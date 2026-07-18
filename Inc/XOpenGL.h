@@ -51,7 +51,7 @@
 
 #include "XOpenGLTemplate.h" //thanks han!
 
-#if ENGINE_VERSION==436 || ENGINE_VERSION==430
+#if ENGINE_VERSION==436 || ENGINE_VERSION==430 || ENGINE_VERSION==400
 #define clockFast(Timer)   {Timer -= appCycles();}
 #define unclockFast(Timer) {Timer += appCycles()-34;}
 #elif UNREAL_OLDUNREAL
@@ -125,6 +125,10 @@ enum EOpenGLVersion
 {
 	GL_Core = 0,
 	GL_ES = 1,
+	// ufront: WebGL2 == GLES 3.0 subset (no GL_OES_shader_io_blocks, #version 300 es, S3TC under the WebGL
+	// extension name). It is an ES profile: IsES() is true for both GL_ES and GL_ES_WEBGL. Selectable via
+	// the OpenGLVersion ini enum ("ES_WEBGL") so the WebGL path can be validated on desktop.
+	GL_ES_WEBGL = 2,
 };
 
 enum EVSync
@@ -156,6 +160,72 @@ enum eParallaxVersion
 //#define PF_AlphaBlend 0x20000
 #define TEXF_RGBA8 TEXF_BGRA8 // stijn: really BGRA8
 
+enum ERenderZTest
+{
+	ZTEST_Less,
+	ZTEST_Equal,
+	ZTEST_LessEqual,
+	ZTEST_Greater,
+	ZTEST_GreaterEqual,
+	ZTEST_NotEqual,
+	ZTEST_Always
+};
+#endif
+
+// ufront: vanilla UT99 v400 port. PF_AlphaBlend is a UT469 addition absent in v400, and its 469
+// value (0x20000) collides with v400's PF_CloudWavy. Define it to 0 so the renderer's alpha-blend
+// branches are inert on v400 (vanilla content never sets it); PF_Translucent/Modulated/Masked keep
+// the classic UE1 blend behavior. Gated for a future v200 port.
+#if ENGINE_VERSION==400
+#ifndef PF_AlphaBlend
+#define PF_AlphaBlend 0
+#endif
+// PF_Straight_AlphaBlend / PF_Premultiplied_AlphaBlend are UT469 blend polyflags with no v400
+// equivalent. Inert (0) like PF_AlphaBlend.
+#ifndef PF_Straight_AlphaBlend
+#define PF_Straight_AlphaBlend 0
+#endif
+#ifndef PF_Premultiplied_AlphaBlend
+#define PF_Premultiplied_AlphaBlend 0
+#endif
+
+// v400's ETextureFormat uses numeric names (TEXF_P8/RGBA7/RGB16/DXT1/RGB8/RGBA8); UT469 renamed
+// several of them. Alias the 469 names the renderer's SetTexture switch uses to the equivalent v400
+// value so each real v400 format lands on a correct case. TEXF_RGBA8_/TEXF_RGB16_ have no v400
+// equivalent — give them unused sentinel values so their (dead) cases still compile.
+#ifndef TEXF_BGRA8_LM
+#define TEXF_BGRA8_LM TEXF_RGBA7   // v400 = 1: 32-bit BGRA 7-bit (lightmaps/fogmaps/hicolor)
+#endif
+#ifndef TEXF_R5G6B5
+#define TEXF_R5G6B5   TEXF_RGB16   // v400 = 2: 5-6-5
+#endif
+#ifndef TEXF_BC1
+#define TEXF_BC1      TEXF_DXT1    // v400 = 3: S3TC DXT1
+#endif
+#ifndef TEXF_BGRA8
+#define TEXF_BGRA8    TEXF_RGBA8   // v400 = 5: 32-bit BGRA 8-bit
+#endif
+#ifndef TEXF_RGBA8_
+#define TEXF_RGBA8_   0x70         // no v400 equivalent (dead case)
+#endif
+#ifndef TEXF_RGB16_
+#define TEXF_RGB16_   0x71         // no v400 equivalent (dead case)
+#endif
+#ifndef TEXF_RGB10A2_LM
+#define TEXF_RGB10A2_LM 0x72       // 227 HDR-lightmap format; no v400 equivalent (comparisons stay false)
+#endif
+
+// v400 lacks these Core helpers. Only TEXF_DXT1 is a compressed format in v400.
+static inline UBOOL FIsCompressedFormat(INT Format) { return Format == TEXF_DXT1; }
+static inline FString FTextureFormatString(INT Format)
+{
+	TCHAR Buf[32];
+	appSprintf(Buf, TEXT("TEXF_%i"), Format);
+	return FString(Buf);
+}
+
+// v400 has no ERenderZTest (a UT469 addition). SetZTestMode() is compiled but never called by the
+// v400 engine; provide the enum so it builds.
 enum ERenderZTest
 {
 	ZTEST_Less,
@@ -324,7 +394,7 @@ inline int	CheckGLError(const char* file, int line)
             case GL_STACK_UNDERFLOW:    Msg = TEXT("GL_STACK_UNDERFLOW");   break;
             case GL_OUT_OF_MEMORY:      Msg = TEXT("GL_OUT_OF_MEMORY");     break;
 		};
-		GWarn->Logf(TEXT("XOpenGL Error: %ls (%i) file %ls at line %i"), Msg, glErr, appFromAnsi(file), line);
+		GWarn->Logf(TEXT("XOpenGL Error: %s (%i) file %s at line %i"), Msg, glErr, appFromAnsi(file), line);
 	}
 	return 1;
 }
@@ -348,8 +418,14 @@ public:
 
 	FShaderWriterX()
 	{
+#if ENGINE_VERSION==400
+		// ufront (v400): TArray has no Reserve/AddNoCheck. Empty(Slack) reserves; Add() appends one.
+		Data.Empty(1000);
+		Data.Add();
+#else
 		Data.Reserve(1000);
 		Data.AddNoCheck();
+#endif
 		Data(0) = '\0';
 	}
 
@@ -417,8 +493,13 @@ public:
 
 	void Reset()
 	{
+#if ENGINE_VERSION==400
+		Data.Empty();
+		Data.Add();
+#else
 		Data.EmptyNoRealloc();
 		Data.AddNoCheck();
+#endif
 		Data(0) = '\0';
 	}
 };
@@ -496,6 +577,10 @@ class UXOpenGLRenderDevice : public URenderDevice
 	INT NumAASamples;
 	INT DetailMax;
 	BYTE OpenGLVersion;
+	// ufront: ES_WEBGL is a subset of the ES profile. IsES() covers both (use it wherever the ES render
+	// path applies); IsWebGL() gates the WebGL2/GLES3.0-only deviations (flattened varyings, #version 300).
+	inline bool IsES() const { return OpenGLVersion == GL_ES || OpenGLVersion == GL_ES_WEBGL; }
+	inline bool IsWebGL() const { return OpenGLVersion == GL_ES_WEBGL; }
 	BYTE ParallaxVersion;
 	BYTE UseVSync;
 
@@ -575,6 +660,11 @@ class UXOpenGLRenderDevice : public URenderDevice
 	//
 	FString AllExtensions;
 	INT		MaxClippingPlanes;
+#if ENGINE_VERSION==400
+	// ufront (v400): MaxTextureSize is normally provided by the URenderDeviceOldUnreal469 base class,
+	// which vanilla v400 does not have (we inherit plain URenderDevice). Declare it here.
+	INT		MaxTextureSize;
+#endif
 	INT		NumberOfExtensions;
 	INT		MaxUniformBlockSize;
 	INT		MaxSSBOBlockSize;
@@ -1202,7 +1292,11 @@ class UXOpenGLRenderDevice : public URenderDevice
 			OPT_ClipDistance         = 0x004000,
 
 			// Enabled editor-specific code
-			OPT_Editor				 = 0x008000
+			OPT_Editor				 = 0x008000,
+
+			// ufront: WebGL2/GLES3.0 subset (flattened varyings, #version 300 es). Set in addition to
+			// OPT_GLES only when the render device is in the ES_WEBGL profile.
+			OPT_GLES_WEBGL           = 0x010000
         };
 
 		ShaderCompilationOptions(DWORD ShaderOptions)
@@ -1540,7 +1634,14 @@ class UXOpenGLRenderDevice : public URenderDevice
 		glm::float32 Gamma;
 		glm::float32 LightMapIntensity;		// DrawComplex/OneXBlending
 		glm::float32 LightColorIntensity;	// DrawGouraud/ActorXBlending
-		
+		// ufront (2.12): std140 rounds a uniform block's size UP to a multiple of 16 bytes. 8 mat4 (512) +
+		// 3 float (12) = 524, but the GLSL FrameState block's DATA_SIZE is 528. Without this pad the bound
+		// buffer is 524 -> 4 bytes too small. AMD/Mesa (radeonsi + ANGLE) STRICTLY reject every draw that
+		// binds it ("glDrawArrays: uniform buffer too small") -> BLACK screen; NVIDIA silently tolerates the
+		// shortfall. Pad the C++ struct to 528 so the buffer matches std140. (Diagnosed live on an RX 6900 XT:
+		// FrameState DATA_SIZE=528 vs boundBuf=524.)
+		glm::float32 std140Pad;
+
 	};
 	BufferObject<FrameState> FrameStateBuffer;
 		

@@ -129,6 +129,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 	UEnum* OpenGLVersions = new(GetClass(), TEXT("OpenGLVersions"))UEnum(NULL);
 	new(OpenGLVersions->Names)FName(TEXT("Core"));
 	new(OpenGLVersions->Names)FName(TEXT("ES"));
+	new(OpenGLVersions->Names)FName(TEXT("ES_WEBGL")); // ufront: WebGL2/GLES3.0 subset (index 2 == GL_ES_WEBGL)
 
 	UEnum* ParallaxVersions = new(GetClass(), TEXT("Parallax"))UEnum(NULL);
 	new(ParallaxVersions->Names)FName(TEXT("Disabled"));
@@ -269,6 +270,9 @@ void UXOpenGLRenderDevice::StaticConstructor()
 	UseVSync = VS_Adaptive;
 #endif
 	
+	// ufront (2.12): detail textures now UPLOAD correctly on web (TEXF_BGRA8 uses GL_RGBA + B<->R swap on ES,
+	// and OpenGLVersion is ES_WEBGL). DetailMax itself is left upstream-gated (owner preference) -> it is 0 by
+	// default on this v400 build and enabled via the ini ([XOpenGLDrv.XOpenGLRenderDevice] DetailMax=0..3).
 #if UNREAL_TOURNAMENT_OLDUNREAL
 	DetailMax = 2;
 #endif
@@ -371,7 +375,29 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	Viewport = InViewport;
 	glContext = NULL;
 	iPixelFormat = 0;
+#if ENGINE_VERSION==400
+#ifdef __EMSCRIPTEN__
+	// ufront: THE single place the platform selects the profile. WebGL can only ever be WebGL2 == GLES 3.0,
+	// so force the ES_WEBGL profile here; the ini/StaticConstructor default (GL_Core) would otherwise emit
+	// #version 330 core + geometry shaders that WebGL2 cannot compile. Everything downstream keys off
+	// OpenGLVersion / IsES() / IsWebGL() — no other __EMSCRIPTEN__ branch drives render behaviour. On
+	// desktop the profile comes from the ini (OpenGLVersion=ES_WEBGL) so this path is validatable natively.
+	OpenGLVersion = GL_ES_WEBGL;
+#endif
+#endif
 
+	// ufront (2.12): the inherited base feature flags (Coronas/VolumetricLighting/ShinySurfaces/DetailTextures/
+	// HighDetailActors) now come from the shared web config read in UNSDLClient::TryRenderDevice. DetailMax is
+	// XOpenGL's OWN config prop and must be correct BEFORE InitShaders bakes #define OPT_DetailMax, so read it
+	// from our ini section here on web (the render-device instance is zero-initialized on the web
+	// StaticFindObject path; see NSDLClient.cpp). Default 2; user-tunable via [XOpenGLDrv...] DetailMax.
+#ifdef __EMSCRIPTEN__
+	INT CfgDetailMax = -1;
+	if (GConfig && GConfig->GetInt(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("DetailMax"), CfgDetailMax, NULL))
+		DetailMax = CfgDetailMax;
+	if (DetailMax <= 0)
+		DetailMax = 2;
+#endif
 	DetailMax = Clamp(DetailMax,0,3);
 
 	LastZMode = 255;
@@ -446,7 +472,7 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	debugf(NAME_DevLoad, TEXT("GammaCorrectScreenshots %i"), GammaCorrectScreenshots);
 	debugf(NAME_DevLoad, TEXT("MacroTextures %i"), MacroTextures);
 	debugf(NAME_DevLoad, TEXT("BumpMaps %i"), BumpMaps);
-	debugf(NAME_DevLoad, TEXT("ParallaxVersion %i (%ls)"),ParallaxVersion, ParallaxVersion == Parallax_Basic ? TEXT("Basic") : ParallaxVersion == Parallax_Occlusion ? TEXT("Occlusion") : ParallaxVersion == Parallax_Relief ? TEXT("Relief") : TEXT("Disabled"));
+	debugf(NAME_DevLoad, TEXT("ParallaxVersion %i (%s)"),ParallaxVersion, ParallaxVersion == Parallax_Basic ? TEXT("Basic") : ParallaxVersion == Parallax_Occlusion ? TEXT("Occlusion") : ParallaxVersion == Parallax_Relief ? TEXT("Relief") : TEXT("Disabled"));
 	debugf(NAME_DevLoad, TEXT("EnvironmentMaps %i"), EnvironmentMaps);
 	debugf(NAME_DevLoad, TEXT("NoAATiles %i"), NoAATiles);
 	debugf(NAME_DevLoad, TEXT("GenerateMipMaps %i"), GenerateMipMaps);
@@ -565,7 +591,7 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	UsingPersistentBuffers = UsePersistentBuffers ? true : false;
 	UsingShaderDrawParameters = UseShaderDrawParameters ? true : false;
 
-	if (OpenGLVersion == GL_ES)
+	if (IsES())
     {
 		if (SimulateMultiPass)
             GWarn->Logf(TEXT("OpenGL ES does not support SimulateMultiPass at this time, disabling SimulateMultiPass"));
@@ -720,7 +746,16 @@ UBOOL UXOpenGLRenderDevice::IsSupportedGLVersion(INT MajorVersion, INT MinorVers
 //
 void UXOpenGLRenderDevice::SelectGLVersion()
 {
-	if (OpenGLVersion == GL_ES)
+#if ENGINE_VERSION==400
+	// ufront (v400): we reuse NSDLViewport's already-current context, so there is nothing to probe or
+	// select here. Skip IsSupportedGLVersion() — it creates temporary SDL windows/contexts, which
+	// conflicts with the windowing driver's SDL video subsystem (and isn't needed for a shared context).
+	SelectedMajorVersion = 3;
+	SelectedMinorVersion = 3;
+	SelectedGLVersion = true;
+	return;
+#endif
+	if (IsES())
 	{
 		SelectedMajorVersion = 3;
 		SelectedMinorVersion = 1;
@@ -791,12 +826,12 @@ UBOOL UXOpenGLRenderDevice::SetSDLAttributes() const
 	if (UseOpenGLDebug)
 		SDLSuccess &= XOpenGLSetGLAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
 	
-	SDLSuccess &= XOpenGLSetGLAttribute(SDL_GL_CONTEXT_PROFILE_MASK, (OpenGLVersion == GL_ES) ? SDL_GL_CONTEXT_PROFILE_ES : SDL_GL_CONTEXT_PROFILE_CORE);
+	SDLSuccess &= XOpenGLSetGLAttribute(SDL_GL_CONTEXT_PROFILE_MASK, IsES() ? SDL_GL_CONTEXT_PROFILE_ES : SDL_GL_CONTEXT_PROFILE_CORE);
 	SDLSuccess &= XOpenGLSetGLAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, SelectedMajorVersion);
 	SDLSuccess &= XOpenGLSetGLAttribute(SDL_GL_CONTEXT_MINOR_VERSION, SelectedMinorVersion);
     
 	if (!SDLSuccess)
-        debugf(NAME_DevLoad, TEXT("XOpenGL: SDL Error in SetSDLAttributes (probably non fatal): %ls"), appFromAnsi(SDL_GetError()));
+        debugf(NAME_DevLoad, TEXT("XOpenGL: SDL Error in SetSDLAttributes (probably non fatal): %s"), appFromAnsi(SDL_GetError()));
     
 	return SDLSuccess;
     unguard;
@@ -815,7 +850,17 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 #if !_WIN32
     // On non-Windows targets, we need to specify the requested GL version
     // before creating the window
+#if ENGINE_VERSION==400
+	// ufront (v400): do NOT create our own GL context (native or web). NSDLViewport already created the
+	// SDL GL context and made it current before Init — adopt it (like NOpenGLESDrv). On the web this is
+	// the single WebGL2 context; on native it's the desktop context. Exit()/Unlock() don't delete/swap it
+	// (the viewport owns window + swap). (A desktop two-context experiment to force strict ES3.0 was
+	// dropped: NVIDIA only exposes ES 3.2 and the second context split resources -> WebGL2 strictness can
+	// only be validated in-browser, and WebGL has a single context anyway.)
+	glContext = SDL_GL_GetCurrentContext();
+#else
 	glContext = SDL_GL_CreateContext((SDL_Window*)Window);
+#endif
 #else
 	HWND TmpWnd = (HWND)Window;
 	hDC = GetDC(TmpWnd);
@@ -890,18 +935,24 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 #if _WIN32
 	if (!gladLoadGL())
 		appErrorf(TEXT("XOpenGL: Init failed!"));
+#elif defined(__EMSCRIPTEN__)
+	// ufront (web): WebGL2 == GLES 3.0. Use the desktop-GL loader (glad's GL3 entry-point set shares names
+	// with the ES3 subset), so the ES3 functions XOpenGL needs (UBO/VAO/glMapBufferRange/instancing) get
+	// resolved via emscripten's GetProcAddress. The ES2 loader would miss all of those. GL4-only entry
+	// points that WebGL2 lacks resolve to null and are gated off at runtime by CheckExtensions.
+	gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
 #else
-	if (OpenGLVersion == GL_ES)
+	if (IsES())
 		gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress);
 	else
 		gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
 #endif
 
 	Description = appFromAnsi((const ANSICHAR *)glGetString(GL_RENDERER));
-	debugf(NAME_Init, TEXT("GL_VENDOR     : %ls"), appFromAnsi((const ANSICHAR *)glGetString(GL_VENDOR)));
-	debugf(NAME_Init, TEXT("GL_RENDERER   : %ls"), appFromAnsi((const ANSICHAR *)glGetString(GL_RENDERER)));
-	debugf(NAME_Init, TEXT("GL_VERSION    : %ls"), appFromAnsi((const ANSICHAR *)glGetString(GL_VERSION)));
-	debugf(NAME_Init, TEXT("GL_SHADING_LANGUAGE_VERSION    : %ls"), appFromAnsi((const ANSICHAR *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
+	debugf(NAME_Init, TEXT("GL_VENDOR     : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_VENDOR)));
+	debugf(NAME_Init, TEXT("GL_RENDERER   : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_RENDERER)));
+	debugf(NAME_Init, TEXT("GL_VERSION    : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_VERSION)));
+	debugf(NAME_Init, TEXT("GL_SHADING_LANGUAGE_VERSION    : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
 
 	AllExtensions = TEXT("");
 	glGetIntegerv(GL_NUM_EXTENSIONS, &NumberOfExtensions);
@@ -923,7 +974,7 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 	{
 		if (SplitString.Len())
 		{
-			debugf(NAME_DevLoad, TEXT("GL_EXTENSIONS(%i): %ls"),i, *SplitString);
+			debugf(NAME_DevLoad, TEXT("GL_EXTENSIONS(%i): %s"),i, *SplitString);
 			i++;
 		}
 	}
@@ -959,7 +1010,7 @@ void UXOpenGLRenderDevice::MakeCurrent()
 	{
 		bool Result = XOpenGLMakeCurrent(Window, glContext);
 		if (!Result)
-			debugf(TEXT("XOpenGL: MakeCurrent failed with: %ls"), appFromAnsi(SDL_GetError()));
+			debugf(TEXT("XOpenGL: MakeCurrent failed with: %s"), appFromAnsi(SDL_GetError()));
 		CurrentGLContext = glContext;
 	}
 #else
@@ -1013,7 +1064,7 @@ void UXOpenGLRenderDevice::SetPermanentState()
     }
     if ( GenerateMipMaps ) // Is there really a visible difference at all?
     {
-        if (OpenGLVersion == GL_ES)
+        if (IsES())
             glHint(GL_GENERATE_MIPMAP_HINT,GL_NICEST); //this particular setting is GL ES only.
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
@@ -1526,7 +1577,7 @@ void UXOpenGLRenderDevice::SetSceneNode(FSceneNode* Frame)
 		if (!Actor->bStatic && Actor->bMovable && !HWLighting)
 			continue;
 
-#if ENGINE_VERSION>=430 && ENGINE_VERSION<1100
+#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // ufront: v400 shares the UT99-family light layout (FPlane.X/Y/Z, Region.ZoneNumber) — not the 227/469 fields.
 		LightList.AddItem(Actor);
 #else
 		if (Actor->NormalLightRadius) //for normal mapping only add lights with normallightradius set. Needs performance tests if not.
@@ -1543,7 +1594,7 @@ void UXOpenGLRenderDevice::SetSceneNode(FSceneNode* Frame)
 
 		FPlane RGBColor = FGetHSV(Actor->LightHue, Actor->LightSaturation, Actor->LightBrightness);
 
-#if ENGINE_VERSION>=430 && ENGINE_VERSION<1100
+#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // ufront: v400 shares the UT99-family light layout (FPlane.X/Y/Z, Region.ZoneNumber) — not the 227/469 fields.
 		LightData->LightData1[i] = glm::vec4(RGBColor.X, RGBColor.Y, RGBColor.Z, Actor->LightCone);
 #else
 		LightData->LightData1[i] = glm::vec4(RGBColor.R, RGBColor.G, RGBColor.B, Actor->LightCone);
@@ -1551,7 +1602,7 @@ void UXOpenGLRenderDevice::SetSceneNode(FSceneNode* Frame)
 		LightData->LightData2[i] = glm::vec4(Actor->LightEffect, Actor->LightPeriod, Actor->LightPhase, Actor->LightRadius);
 		LightData->LightData3[i] = glm::vec4(Actor->LightType, Actor->VolumeBrightness, Actor->VolumeFog, Actor->VolumeRadius);
 		
-#if ENGINE_VERSION>=430 && ENGINE_VERSION<1100
+#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // ufront: v400 shares the UT99-family light layout (FPlane.X/Y/Z, Region.ZoneNumber) — not the 227/469 fields.
 		LightData->LightData4[i] = glm::vec4(Actor->WorldLightRadius(), NumLights, (GLfloat)Actor->Region.ZoneNumber, (GLfloat)(Frame->Viewport->Actor ? Frame->Viewport->Actor->Region.ZoneNumber : 0.f));
 		LightData->LightData5[i] = glm::vec4(Actor->LightRadius * 10, 1.0, 0.0, 0.0);
 #else
@@ -1817,7 +1868,7 @@ void UXOpenGLRenderDevice::Lock(FPlane InFlashScale, FPlane InFlashFog, FPlane S
 
 	check(LockCount == 0);
 	++LockCount;
-	
+
 	MakeCurrent();
 
 	RenderFBOBound = FALSE;
@@ -1915,12 +1966,24 @@ void UXOpenGLRenderDevice::Unlock(UBOOL Blit)
 		if (Blit)
 		{
 			SetProgram(PostProcess_Prog);
+#if ENGINE_VERSION==400
+			// ufront (v400): UViewport has no PhysicalSizeX/Y (a UT469 hi-DPI addition). We render to
+			// the plain window surface, so the drawable size is just SizeX/SizeY.
+			static_cast<PostProcessProgram*>(Shaders[PostProcess_Prog])->Draw(RenderColorTexture, Viewport->SizeX, Viewport->SizeY);
+#else
 			static_cast<PostProcessProgram*>(Shaders[PostProcess_Prog])->Draw(RenderColorTexture, Viewport->PhysicalSizeX, Viewport->PhysicalSizeY);
+#endif
 			SetProgram(No_Prog);
 			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
 #if !_WIN32
+#if ENGINE_VERSION==400
+			// ufront (v400): NSDLViewport owns the window and performs SDL_GL_SwapWindow in its own
+			// present path (UNSDLViewport::Unlock). Don't double-swap here — a second swap would present
+			// an undefined back buffer.
+#else
 			SDL_GL_SwapWindow(Window);
+#endif
 #else
 			verify(SwapBuffers(hDC));
 #endif
@@ -2030,8 +2093,24 @@ void UXOpenGLRenderDevice::SetGamma(FLOAT GammaCorrection)
 {
 	guard(UXOpenGLRenderDevice::SetGamma);
 
+#if ENGINE_VERSION==400
+	// ufront (v400): the web client's Brightness defaults to 0 (no video-settings UI writes it), which would
+	// crush the gamma to near-black. Substitute the retail default brightness (0.5) so the present matches a
+	// default desktop config. A real brightness value (>0) passes through untouched.
+	if (GammaCorrection <= 0.f)
+		GammaCorrection = 0.5f;
+#endif
 	GammaCorrection += 0.1f; // change range from 0.0-0.9 to 0.1 to 1.0
-	Gamma = GammaCorrection * (GIsEditor ? GammaMultiplierUED : GammaMultiplier);
+	FLOAT GammaMult = (GIsEditor ? GammaMultiplierUED : GammaMultiplier);
+#if ENGINE_VERSION==400
+	// ufront (v400): GammaMultiplier/GammaMultiplierUED are CPF_Config floats whose StaticConstructor
+	// default (1.75) is not applied on v400 (they load as 0 from the retail ini), which drives Gamma to 0.
+	// A zero Gamma makes the PostProcess present shader's GammaCorrect() compute pow(color, 1/0)=0 -> a
+	// fully black screen even though the scene renders correctly into the RenderFBO. Restore the default.
+	if (GammaMult <= 0.f)
+		GammaMult = 1.75f;
+#endif
+	Gamma = GammaCorrection * GammaMult;
 
 	unguard;
 }
@@ -2040,6 +2119,13 @@ FLOAT UXOpenGLRenderDevice::GetViewportGamma(UViewport* Viewport) const
 {
 	if (Viewport->IsOrtho())
 		return 1.f;
+#if ENGINE_VERSION==400
+	// ufront (v400): last-resort guard — if SetGamma never ran (Gamma still 0), avoid the black-screen
+	// pow(color, 1/0). With SetGamma's Brightness/GammaMultiplier defaults, Gamma computes to ~1.05
+	// (retail-default look) and passes through here unchanged.
+	if (Gamma <= 0.f)
+		return 1.f;
+#endif
 	return Gamma;
 }
 
@@ -2207,12 +2293,21 @@ void UXOpenGLRenderDevice::Exit()
 	DistanceFogBuffer.DeleteBuffer();
 
 	#if !_WIN32
+#if ENGINE_VERSION==400
+		// ufront (v400): we adopted NSDLViewport's context (see CreateOpenGLContext) — it destroys the
+		// context + window itself in CloseWindow. Do NOT delete/unbind it here (double-free / stealing the
+		// viewport's current context). Just drop our references.
+		CurrentGLContext = NULL;
+		AllContexts.RemoveItem(glContext);
+		glContext = NULL;
+#else
 		CurrentGLContext = NULL;
 
 		XOpenGLMakeCurrent(Window, NULL);
 		XOpenGLDestroyContext(glContext);
 
 		AllContexts.RemoveItem(glContext);
+#endif
 	#else
 	// Shut down this GL context. May fail if window was already destroyed.
 	check(glContext)
@@ -2239,40 +2334,40 @@ void UXOpenGLRenderDevice::Exit()
 #endif
 
 	//Why isn't this set automatically??
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("Description"), *FString::Printf(TEXT("%ls"), *Description));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("Description"), *FString::Printf(TEXT("%s"), *Description));
 	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawSimple"), *GetTrueFalse(NoDrawSimple));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawTile"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(NoDrawTile)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawGouraudList"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(NoDrawGouraudList)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawGouraud"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(NoDrawGouraud)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawComplexSurface"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(NoDrawComplexSurface)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseOpenGLDebug"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseOpenGLDebug)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseHWClipping"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseHWClipping)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawTile"), *FString::Printf(TEXT("%s"), *GetTrueFalse(NoDrawTile)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawGouraudList"), *FString::Printf(TEXT("%s"), *GetTrueFalse(NoDrawGouraudList)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawGouraud"), *FString::Printf(TEXT("%s"), *GetTrueFalse(NoDrawGouraud)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoDrawComplexSurface"), *FString::Printf(TEXT("%s"), *GetTrueFalse(NoDrawComplexSurface)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseOpenGLDebug"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseOpenGLDebug)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseHWClipping"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseHWClipping)));
 #if UNREAL_OLDUNREAL
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseHWLighting"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseHWLighting)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseHWLighting"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseHWLighting)));
 #endif
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseBindlessTextures"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseBindlessTextures)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseShaderDrawParameters"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseShaderDrawParameters)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UsePersistentBuffers"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UsePersistentBuffers)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("GenerateMipMaps"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(GenerateMipMaps)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseBufferInvalidation"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseBufferInvalidation)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoAATiles"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(NoAATiles)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("DetailTextures"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(DetailTextures)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("MacroTextures"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(MacroTextures)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("BumpMaps"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(BumpMaps)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("ParallaxVersion"), *FString::Printf(TEXT("%ls"), ParallaxVersion == Parallax_Basic ? TEXT("Basic") : ParallaxVersion == Parallax_Occlusion ? TEXT("Occlusion") : ParallaxVersion == Parallax_Relief ? TEXT("Relief") : TEXT("None")));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("GammaCorrectScreenshots"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(GammaCorrectScreenshots)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseAA"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseAA)));
-	//GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseAASmoothing"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseAASmoothing)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseTrilinear"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseTrilinear)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UsePrecache"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UsePrecache)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("AlwaysMipmap"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(AlwaysMipmap)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("ShareLists"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(ShareLists)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoFiltering"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(NoFiltering)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("HighDetailActors"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(HighDetailActors)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("Coronas"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(Coronas)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("ShinySurfaces"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(ShinySurfaces)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("VolumetricLighting"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(VolumetricLighting)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("SimulateMultiPass"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(SimulateMultiPass)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseBindlessTextures"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseBindlessTextures)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseShaderDrawParameters"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseShaderDrawParameters)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UsePersistentBuffers"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UsePersistentBuffers)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("GenerateMipMaps"), *FString::Printf(TEXT("%s"), *GetTrueFalse(GenerateMipMaps)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseBufferInvalidation"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseBufferInvalidation)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoAATiles"), *FString::Printf(TEXT("%s"), *GetTrueFalse(NoAATiles)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("DetailTextures"), *FString::Printf(TEXT("%s"), *GetTrueFalse(DetailTextures)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("MacroTextures"), *FString::Printf(TEXT("%s"), *GetTrueFalse(MacroTextures)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("BumpMaps"), *FString::Printf(TEXT("%s"), *GetTrueFalse(BumpMaps)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("ParallaxVersion"), *FString::Printf(TEXT("%s"), ParallaxVersion == Parallax_Basic ? TEXT("Basic") : ParallaxVersion == Parallax_Occlusion ? TEXT("Occlusion") : ParallaxVersion == Parallax_Relief ? TEXT("Relief") : TEXT("None")));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("GammaCorrectScreenshots"), *FString::Printf(TEXT("%s"), *GetTrueFalse(GammaCorrectScreenshots)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseAA"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseAA)));
+	//GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseAASmoothing"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseAASmoothing)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseTrilinear"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseTrilinear)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UsePrecache"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UsePrecache)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("AlwaysMipmap"), *FString::Printf(TEXT("%s"), *GetTrueFalse(AlwaysMipmap)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("ShareLists"), *FString::Printf(TEXT("%s"), *GetTrueFalse(ShareLists)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("NoFiltering"), *FString::Printf(TEXT("%s"), *GetTrueFalse(NoFiltering)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("HighDetailActors"), *FString::Printf(TEXT("%s"), *GetTrueFalse(HighDetailActors)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("Coronas"), *FString::Printf(TEXT("%s"), *GetTrueFalse(Coronas)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("ShinySurfaces"), *FString::Printf(TEXT("%s"), *GetTrueFalse(ShinySurfaces)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("VolumetricLighting"), *FString::Printf(TEXT("%s"), *GetTrueFalse(VolumetricLighting)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("SimulateMultiPass"), *FString::Printf(TEXT("%s"), *GetTrueFalse(SimulateMultiPass)));
 
 	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("MaxAnisotropy"), *FString::Printf(TEXT("%f"), MaxAnisotropy));
 	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("LODBias"), *FString::Printf(TEXT("%f"), LODBias));
@@ -2282,17 +2377,17 @@ void UXOpenGLRenderDevice::Exit()
 	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("RefreshRate"), *FString::Printf(TEXT("%i"), RefreshRate));
 	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("DescFlags"), *FString::Printf(TEXT("%i"), DescFlags));
 
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseVSync"), *FString::Printf(TEXT("%ls"), UseVSync == VS_Off ? TEXT("Off") : UseVSync == VS_On ? TEXT("On") : TEXT("Adaptive")));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("OpenGLVersion"), *FString::Printf(TEXT("%ls"), OpenGLVersion == GL_Core ? TEXT("Core") : TEXT("ES")));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseVSync"), *FString::Printf(TEXT("%s"), UseVSync == VS_Off ? TEXT("Off") : UseVSync == VS_On ? TEXT("On") : TEXT("Adaptive")));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("OpenGLVersion"), *FString::Printf(TEXT("%s"), OpenGLVersion == GL_Core ? TEXT("Core") : (OpenGLVersion == GL_ES_WEBGL ? TEXT("ES_WEBGL") : TEXT("ES"))));
 
 	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("GammaMultiplier"), *FString::Printf(TEXT("%f"), GammaMultiplier));
 	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("GammaMultiplierUED"), *FString::Printf(TEXT("%f"), GammaMultiplierUED));
 
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("OneXBlending"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(OneXBlending)));
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("ActorXBlending"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(ActorXBlending)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("OneXBlending"), *FString::Printf(TEXT("%s"), *GetTrueFalse(OneXBlending)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("ActorXBlending"), *FString::Printf(TEXT("%s"), *GetTrueFalse(ActorXBlending)));
 
 #if UNREAL_TOURNAMENT_OLDUNREAL && !defined(__LINUX_ARM__)
-	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseLightmapAtlas"), *FString::Printf(TEXT("%ls"), *GetTrueFalse(UseLightmapAtlas)));
+	GConfig->SetString(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("UseLightmapAtlas"), *FString::Printf(TEXT("%s"), *GetTrueFalse(UseLightmapAtlas)));
 #endif
 	unguard;
 }

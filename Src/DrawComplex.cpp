@@ -118,7 +118,7 @@ void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& S
 #else
 	if (BumpMaps && Surface.Texture && Surface.Texture->Texture && Surface.Texture->Texture->BumpMap)
 	{
-# if ENGINE_VERSION==1100
+# if ENGINE_VERSION==1100 || ENGINE_VERSION==400
 		Surface.Texture->Texture->BumpMap->Lock(Shader->BumpMapInfo, Viewport->CurrentTime, 0, this);
 # else
 		Surface.Texture->Texture->BumpMap->Lock(Shader->BumpMapInfo, FTime(), 0, this);

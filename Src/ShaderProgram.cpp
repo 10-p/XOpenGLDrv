@@ -29,9 +29,18 @@ void UXOpenGLRenderDevice::ShaderProgram::EmitGlobals(ShaderCompilationOptions O
 			Out << "#version 330 core" END_LINE;
 	}
 	else
-	{	  
-	  Out << "#version 310 es" END_LINE;
-	  Out << "#extension GL_OES_shader_io_blocks : require" END_LINE;
+	{
+		if (Options.HasOption(ShaderCompilationOptions::OPT_GLES_WEBGL))
+		{
+			// ufront: WebGL2 == GLES 3.0 has no GL_OES_shader_io_blocks, so emit #version 300 es and use
+			// flattened plain in/out varyings (see the OPT_GLES_WEBGL branches in the Draw*_GLSL shaders).
+			Out << "#version 300 es" END_LINE;
+		}
+		else
+		{
+			Out << "#version 310 es" END_LINE;
+			Out << "#extension GL_OES_shader_io_blocks : require" END_LINE;
+		}
 	}
 
 	if (Options.HasOption(ShaderCompilationOptions::OPT_BindlessTextures))
@@ -51,13 +60,15 @@ void UXOpenGLRenderDevice::ShaderProgram::EmitGlobals(ShaderCompilationOptions O
 // The following extension appears not to be available on RaspberryPi4 at the moment.
 #extension GL_EXT_clip_cull_distance : enable
 
-// This determines how much precision the GPU uses when calculating. 
-// Performance critical (especially on low end)!! 
-// Not every option is available on any platform. 
-// TODO: separate option for vert and frag?
-// options: lowp/mediump/highp, should be mediump for performance reasons, but appears to cause trouble determining DrawFlags then !?! (Currently on NVIDIA 470.103.01).
-precision lowp float;
-precision lowp int;
+// This determines how much precision the GPU uses when calculating.
+// Performance critical (especially on low end)!!
+// Not every option is available on any platform.
+// options: lowp/mediump/highp. ufront (2.12): use HIGHP. lowp/mediump texcoords snap to coarse steps ->
+// texture JITTER and "big-step" scrolling on drivers that HONOR the precision hint (AMD/Mesa radeonsi);
+// NVIDIA silently promotes everything to highp, which is why it looked smooth there. WebGL2/GLES3 guarantees
+// highp in BOTH vertex and fragment shaders, so this is safe.
+precision highp float;
+precision highp int;
 )";
 	}
 
@@ -182,6 +193,13 @@ layout(std140) uniform EditorState
 };
 #endif
 
+// ufront (WebGL2/ES): only DECLARE this block when the fog code that uses it is
+// compiled in (OPT_DistanceFog). It is bound (glUniformBlockBinding + a UBO) only on
+// engines with distance fog (ENGINE_VERSION==227). Declaring it unconditionally on
+// v400 (where OPT_DistanceFog is off and it is never bound) left an active-but-unbound
+// uniform block, which WebGL2/ANGLE flags on every draw ("used but unbound uniform
+// buffer") and may drop the draw entirely -> black screen.
+#if OPT_DistanceFog
 layout(std140) uniform DistanceFogParams
 {
 	vec4 DistanceFogColor;
@@ -190,6 +208,7 @@ layout(std140) uniform DistanceFogParams
 	float DistanceFogDensity;		// For exp and exp2 equation
 	int DistanceFogMode;			// -1 = disabled, 0 = linear, 1 = exp, 2 = exp2
 };
+#endif
 
 #if OPT_DistanceFog
 float getFogFactor(float FogCoord)
@@ -314,7 +333,7 @@ static void GetTypeInfo(const char* TypeName, INT& SizeBytes, INT& Components)
 		Components = 1;
 	}
 	else
-		appErrorf(TEXT("Unknown GLSL type: %ls"), appFromAnsi(TypeName));
+		appErrorf(TEXT("Unknown GLSL type: %s"), appFromAnsi(TypeName));
 }
 
 INT UXOpenGLRenderDevice::ShaderProgram::GetMaximumUniformBufferSize(const DrawCallParameterInfo* Info) const
@@ -385,10 +404,16 @@ layout(std430, binding = )" << BufferBindingIndex << R"() buffer All)" << appToA
 	else
 	{
 		//, binding = )" << BufferBindingIndex << R"(
+		// ufront (WebGL2/ES portability): a std140 UBO array MUST have size >= 1. ParametersBufferSize is 0
+		// for the params-less programs (DrawSimple*, PostProcess), which emitted `Params[0]` -- a zero-length
+		// array is ILLEGAL in GLSL ES. NVIDIA silently tolerates it, but AMD Mesa does NOT: native Mesa (via
+		// Firefox) fails the shader build (ShaderProgram.cpp:784 assert -> crash), and ANGLE-on-Mesa (via
+		// Chromium) mis-handles it so the PostProcess blit shader yields a BLACK screen. Clamp to Max(size,1):
+		// an unused 1-element block is optimized out (inactive -> no binding needed), used blocks index [0].
 		Out << R"(
 layout(std140) uniform All)" << appToAnsi(Program->ShaderName) << R"(ShaderDrawParams
 {
-  DrawCallParameters Draw)"	<< appToAnsi(Program->ShaderName) << R"(Params[)" << Program->ParametersBufferSize << R"(];
+  DrawCallParameters Draw)"	<< appToAnsi(Program->ShaderName) << R"(Params[)" << Max<INT>(Program->ParametersBufferSize, 1) << R"(];
 };
 )";
 	}
@@ -428,9 +453,9 @@ void UXOpenGLRenderDevice::ShaderProgram::BindUniform(CompiledShader* Specializa
 	const GLuint BlockIndex = glGetUniformBlockIndex(Specialization->ShaderProgramObject, Name);
 	if (BlockIndex == GL_INVALID_INDEX)
 	{
-		debugf(NAME_DevGraphics, TEXT("XOpenGL: invalid or unused shader var (UniformBlockIndex) %ls in %ls"), appFromAnsi(Name), ShaderName);
+		debugf(NAME_DevGraphics, TEXT("XOpenGL: invalid or unused shader var (UniformBlockIndex) %s in %s"), appFromAnsi(Name), ShaderName);
 		if (RenDev->UseOpenGLDebug && LogLevel >= 2)
-			debugf(TEXT("XOpenGL: invalid or unused shader var (UniformBlockIndex) %ls in %ls"), appFromAnsi(Name), ShaderName);
+			debugf(TEXT("XOpenGL: invalid or unused shader var (UniformBlockIndex) %s in %s"), appFromAnsi(Name), ShaderName);
 	}
 	glUniformBlockBinding(Specialization->ShaderProgramObject, BlockIndex, BindingIndex);
 }
@@ -440,9 +465,9 @@ void UXOpenGLRenderDevice::ShaderProgram::GetUniformLocation(CompiledShader* Spe
 	Uniform = glGetUniformLocation(Specialization->ShaderProgramObject, Name);
 	if (Uniform == GL_INVALID_INDEX)
 	{
-		debugf(NAME_DevGraphics, TEXT("XOpenGL: invalid or unused shader var (UniformLocation) %ls in %ls"), appFromAnsi(Name), ShaderName);
+		debugf(NAME_DevGraphics, TEXT("XOpenGL: invalid or unused shader var (UniformLocation) %s in %s"), appFromAnsi(Name), ShaderName);
 		if (RenDev->UseOpenGLDebug && LogLevel >= 2)
-			debugf(TEXT("XOpenGL: invalid or unused shader var (UniformLocation) %ls in %ls"), appFromAnsi(Name), ShaderName);
+			debugf(TEXT("XOpenGL: invalid or unused shader var (UniformLocation) %s in %s"), appFromAnsi(Name), ShaderName);
 	}
 }
 
@@ -459,6 +484,30 @@ static const TCHAR* ShaderTypeString(GLuint ShaderType)
 
 static void DumpShader(const char* Source, bool AddLineNumbers)
 {
+#if ENGINE_VERSION==400
+	// ufront (v400): v400's TArray<FString>::AddItem assigns onto unconstructed element memory, whose
+	// garbage FString.Data pointer then gets realloc()'d -> crash. Log each line directly instead of
+	// accumulating into a TArray<FString>.
+	FString ShaderSource(Source);
+	INT LineNum = 0;
+	debugf(TEXT("XOpenGL: Shader Source:"));
+	while (true)
+	{
+		const INT NewLine = ShaderSource.InStr(TEXT("\n"));
+		FString Line = NewLine >= 0 ? ShaderSource.Left(NewLine) : ShaderSource;
+		if (Line.Right(1) == TEXT("\r"))
+			Line = Line.Left(Line.Len() - 1);
+		if (Line.InStr(TEXT("#line 1")) == 0)
+			LineNum = 0;
+		if (AddLineNumbers)
+			debugf(TEXT("%03d:\t%s"), LineNum++, *Line);
+		else
+			debugf(TEXT("%s"), *Line);
+		if (NewLine == -1)
+			break;
+		ShaderSource = ShaderSource.Mid(NewLine + 1);
+	}
+#else
 	FString ShaderSource(Source);
 	TArray<FString> Lines;
 	INT LineNum = 0;
@@ -471,7 +520,7 @@ static void DumpShader(const char* Source, bool AddLineNumbers)
 		if (Line.InStr(TEXT("#line 1")) == 0)
 			LineNum = 0;
 		if (AddLineNumbers)
-			Lines.AddItem(FString::Printf(TEXT("%03d:\t%ls"), LineNum++, *Line));
+			Lines.AddItem(FString::Printf(TEXT("%03d:\t%s"), LineNum++, *Line));
 		else
 			Lines.AddItem(*Line);
 		if (NewLine == -1)
@@ -480,7 +529,8 @@ static void DumpShader(const char* Source, bool AddLineNumbers)
 	}
 	debugf(TEXT("XOpenGL: Shader Source:"));
 	for (INT i = 0; i < Lines.Num(); ++i)
-		debugf(TEXT("%ls"), *Lines(i));
+		debugf(TEXT("%s"), *Lines(i));
+#endif
 }
 
 bool UXOpenGLRenderDevice::ShaderProgram::CompileShaderFunction(GLuint ShaderFunctionObject, GLuint FunctionType, ShaderCompilationOptions Options, ShaderWriterFunc Func, bool HaveGeoShader)
@@ -506,13 +556,18 @@ bool UXOpenGLRenderDevice::ShaderProgram::CompileShaderFunction(GLuint ShaderFun
 	glGetShaderiv(ShaderFunctionObject, GL_COMPILE_STATUS, &IsCompiled);
 	if (!IsCompiled)
 	{		
-		GWarn->Logf(TEXT("XOpenGL: Failed compiling %ls %ls Shader (Options %ls)"), ShaderName, ShaderTypeString(FunctionType), *Options.GetShortString());
+		GWarn->Logf(TEXT("XOpenGL: Failed compiling %s %s Shader (Options %s)"), ShaderName, ShaderTypeString(FunctionType), *Options.GetShortString());
 		glGetShaderiv(ShaderFunctionObject, GL_INFO_LOG_LENGTH, &blen);
 		if (blen > 1)
 		{
 			GLchar* compiler_log = new GLchar[blen + 1];
 			glGetShaderInfoLog(ShaderFunctionObject, blen, &slen, compiler_log);
-			debugf(TEXT("XOpenGL: ErrorLog compiling %ls %ls"), ShaderName, appFromAnsi(compiler_log));
+#if ENGINE_VERSION==400
+			// v400 TCHAR is narrow (char): use %s and pass the ANSI log directly (%s would print empty).
+			debugf(TEXT("XOpenGL: ErrorLog compiling %s: %s"), ShaderName, compiler_log);
+#else
+			debugf(TEXT("XOpenGL: ErrorLog compiling %s %s"), ShaderName, appFromAnsi(compiler_log));
+#endif
 			delete[] compiler_log;
 		}
 
@@ -526,10 +581,10 @@ bool UXOpenGLRenderDevice::ShaderProgram::CompileShaderFunction(GLuint ShaderFun
 		{
 			GLchar* compiler_log = new GLchar[blen + 1];
 			glGetShaderInfoLog(ShaderFunctionObject, blen, &slen, compiler_log);
-			debugf(NAME_DevGraphics, TEXT("XOpenGL: Log compiling %ls %ls"), ShaderName, appFromAnsi(compiler_log));
+			debugf(NAME_DevGraphics, TEXT("XOpenGL: Log compiling %s %s"), ShaderName, appFromAnsi(compiler_log));
 			delete[] compiler_log;
 		}
-		else debugf(NAME_DevGraphics, TEXT("XOpenGL: No compiler messages for %ls %ls Shader (Options %ls)"), ShaderName, ShaderTypeString(FunctionType), *Options.GetShortString());
+		else debugf(NAME_DevGraphics, TEXT("XOpenGL: No compiler messages for %s %s Shader (Options %s)"), ShaderName, ShaderTypeString(FunctionType), *Options.GetShortString());
 	}
 
 	return Result;
@@ -548,7 +603,7 @@ bool UXOpenGLRenderDevice::ShaderProgram::LinkShaderProgram(GLuint ShaderProgram
 
 	if (!IsLinked)
 	{
-		GWarn->Logf(TEXT("XOpenGL: Failed linking %ls"), ShaderName);
+		GWarn->Logf(TEXT("XOpenGL: Failed linking %s"), ShaderName);
 		Result = false;
 	}
 
@@ -557,10 +612,10 @@ bool UXOpenGLRenderDevice::ShaderProgram::LinkShaderProgram(GLuint ShaderProgram
 	{
 		GLchar* linker_log = new GLchar[blen + 1];
 		glGetProgramInfoLog(ShaderProgramObject, blen, &slen, linker_log);
-		debugf(TEXT("XOpenGL: Log linking %ls %ls"), ShaderName, appFromAnsi(linker_log));
+		debugf(TEXT("XOpenGL: Log linking %s %s"), ShaderName, appFromAnsi(linker_log));
 		delete[] linker_log;
 	}
-	else debugf(NAME_DevGraphics, TEXT("XOpenGL: No linker messages for %ls"), ShaderName);
+	else debugf(NAME_DevGraphics, TEXT("XOpenGL: No linker messages for %s"), ShaderName);
 
 	CHECK_GL_ERROR();
 	return Result;
@@ -695,7 +750,7 @@ void UXOpenGLRenderDevice::ShaderProgram::BindShaderState(CompiledShader* Specia
 #endif
 
 	if (!UseSSBOParametersBuffer && ParametersInfo)
-		BindUniform(Specialization, ParametersBufferBindingIndex, appToAnsi(*FString::Printf(TEXT("All%lsShaderDrawParams"), ShaderName)));
+		BindUniform(Specialization, ParametersBufferBindingIndex, appToAnsi(*FString::Printf(TEXT("All%sShaderDrawParams"), ShaderName)));
 
 	// Bind regular texture samplers to their respective TMUs
 	check(NumTextureSamplers >= 0 && NumTextureSamplers < 9);
@@ -732,7 +787,7 @@ void UXOpenGLRenderDevice::ShaderProgram::RecompileShader(ShaderCompilationOptio
 	}
 	CurrentSpecialization = new CompiledShader;
 	CurrentSpecialization->Options = Options;
-	CurrentSpecialization->ShaderName = FString::Printf(TEXT("%ls%ls"), ShaderName, *Options.GetShortString());
+	CurrentSpecialization->ShaderName = FString::Printf(TEXT("%s%s"), ShaderName, *Options.GetShortString());
 
 	check(BuildShaderProgram(CurrentSpecialization, VertexShaderFunc, GeoShaderFunc, FragmentShaderFunc));
 	glUseProgram(CurrentSpecialization->ShaderProgramObject);
@@ -827,7 +882,13 @@ void UXOpenGLRenderDevice::ShaderCompilationOptions::SetOptionsForRendererConfig
 	if (RenDev->OpenGLVersion == GL_Core)
 		SetOption(OPT_GLCore);
 	else
+	{
 		SetOption(OPT_GLES);
+		// ufront: ES_WEBGL is a subset of the ES profile — it also gets OPT_GLES, plus OPT_GLES_WEBGL for
+		// the WebGL2/GLES3.0-only deviations (flattened varyings, #version 300 es).
+		if (RenDev->IsWebGL())
+			SetOption(OPT_GLES_WEBGL);
+	}
 	if (RenDev->UsingGeometryShaders)
 		SetOption(OPT_GeometryShaders);
 	if (RenDev->UsingBindlessTextures)
@@ -845,10 +906,18 @@ void UXOpenGLRenderDevice::ShaderCompilationOptions::SetOptionsForRendererConfig
 FString UXOpenGLRenderDevice::ShaderCompilationOptions::GetStringHelper(void (*AddOptionFunc)(FString&, const TCHAR*, bool)) const
 {
     FString Result;
+#if ENGINE_VERSION==400
+// ufront (v400): TCHAR is narrow (char) here, so a wide `L"..."` literal won't convert to const TCHAR*.
+// TEXT() resolves to the correct width on every target.
+#define ADD_OPTION(x) \
+AddOptionFunc(Result, TEXT(#x), (OptionsMask & x) ? true : false);
+#else
 #define ADD_OPTION(x) \
 AddOptionFunc(Result, L ## #x, (OptionsMask & x) ? true : false);
+#endif
 
 	ADD_OPTION(OPT_GLES)
+	ADD_OPTION(OPT_GLES_WEBGL)
 	ADD_OPTION(OPT_GLCore)
     ADD_OPTION(OPT_DetailTextures)
     ADD_OPTION(OPT_MacroTextures)
@@ -885,7 +954,7 @@ FString UXOpenGLRenderDevice::ShaderCompilationOptions::GetShortString() const
 FString UXOpenGLRenderDevice::ShaderCompilationOptions::GetPreprocessorString() const
 {
     return GetStringHelper([](FString& Result, const TCHAR* OptionName, bool IsSet) {
-        Result += FString::Printf(TEXT("#define %ls %d\n"), OptionName, IsSet ? 1 : 0);
+        Result += FString::Printf(TEXT("#define %s %d\n"), OptionName, IsSet ? 1 : 0);
     });
 }
 

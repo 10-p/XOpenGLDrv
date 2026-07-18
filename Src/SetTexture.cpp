@@ -254,13 +254,39 @@ void UXOpenGLRenderDevice::SetSampler(GLuint Sampler, FTextureInfo& Info, UBOOL 
 static FName UserInterface = FName(TEXT("UserInterface"), FNAME_Intrinsic);
 #endif
 
+#if ENGINE_VERSION==400
+#include "decompress.h" // vendored from GL4ES (Benjamin Dobell / Anteru, MIT) — battle-tested S3TC block decode
+// ufront (WebGL2/ES): decode a full DXT1 mip to tightly-packed WxH RGBA8 using GL4ES's DecompressBlockDXT1.
+// Used only for DXT1 textures whose dimensions are not multiples of 4 (e.g. a 128x2 gradient), which
+// WebGL2/ANGLE refuses via glCompressedTexImage2D ("invalid compressed image size"); block-aligned DXT1
+// still uploads compressed. The block decoder writes full 4x4 blocks with no edge clip, so @Dst must hold
+// the block-padded image (((W+3)&~3) * ((H+3)&~3) DWORDs); we then compact it to a tight W-stride image.
+static void XOpenGLDecodeDXT1Image(const BYTE* Src, INT W, INT H, DWORD* Dst)
+{
+	const INT PW = (W + 3) & ~3; // block-padded width
+	const INT PH = (H + 3) & ~3; // block-padded height
+	int SimpleAlpha = 0, ComplexAlpha = 0;
+	const BYTE* Block = Src;
+	for (INT y = 0; y < PH; y += 4)
+		for (INT x = 0; x < PW; x += 4)
+		{
+			DecompressBlockDXT1((uint32_t)x, (uint32_t)y, (uint32_t)PW, Block, 1, &SimpleAlpha, &ComplexAlpha, (uint32_t*)Dst);
+			Block += 8;
+		}
+	// Compact padded PW-stride rows down to a tight W-stride image (drop the block padding on the right).
+	if (PW != W)
+		for (INT y = 0; y < H; y++)
+			memmove(Dst + (size_t)y * W, Dst + (size_t)y * PW, (size_t)W * sizeof(DWORD));
+}
+#endif
+
 BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bind, DWORD PolyFlags, BOOL IsFirstUpload, BOOL IsBindlessTexture, BOOL PartialUpload, INT U, INT V, INT UL, INT VL, BYTE* TextureData)
 {
 	bool UnsupportedTexture = false;
 
 	if (Info.NumMips && !Info.Mips[0])
 	{
-		GWarn->Logf(TEXT("Encountered texture %ls with invalid MipMaps!"), Info.Texture->GetPathName());
+		GWarn->Logf(TEXT("Encountered texture %s with invalid MipMaps!"), Info.Texture->GetPathName());
 		Info.NumMips = 0;
 		UnsupportedTexture = true;
 	}
@@ -274,7 +300,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 
 		if (Bind->BaseMip >= Info.NumMips)
 		{
-			GWarn->Logf(TEXT("Encountered oversize texture %ls without sufficient mipmaps."), Info.Texture->GetPathName());
+			GWarn->Logf(TEXT("Encountered oversize texture %s without sufficient mipmaps."), Info.Texture->GetPathName());
 			UnsupportedTexture = true;
 		}
 	}
@@ -296,7 +322,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 	if (Info.Format == TEXF_P8)
 	{
 		if (!Info.Palette)
-			appErrorf(TEXT("Encountered bogus P8 texture %ls"), Info.Texture->GetFullName());
+			appErrorf(TEXT("Encountered bogus P8 texture %s"), Info.Texture->GetFullName());
 
 		if (PolyFlags & PF_Masked)
 		{
@@ -318,6 +344,16 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 	if (!SupportsS3TC && FIsCompressedFormat(Info.Format))
 		UnsupportedTexture = true;
 
+#if ENGINE_VERSION==400
+	// ufront (WebGL2/ES): DXT1 whose base dimensions are not multiples of 4 (e.g. a 128x2 gradient) is
+	// rejected by WebGL2/ANGLE. Decode those to RGBA8 in software (see XOpenGLDecodeDXT1Image). Block-aligned
+	// DXT1 still uploads compressed. Only meaningful on the WebGL profile.
+	const bool DecodeDXT1 = IsWebGL() && !UnsupportedTexture && (BYTE)Info.Format == TEXF_BC1 &&
+		((Info.Mips[Bind->BaseMip]->USize & 3) || (Info.Mips[Bind->BaseMip]->VSize & 3));
+#else
+	const bool DecodeDXT1 = false;
+#endif
+
 	// Unsupported can already be set in case of only too large mip maps available.
 	if (!UnsupportedTexture)
 	{
@@ -335,9 +371,9 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			MinComposeSize = Info.Mips[Bind->BaseMip]->USize * Info.Mips[Bind->BaseMip]->VSize * 4;
 			InternalFormat = GL_RGBA8;
 			if (OpenGLVersion == GL_Core)
-			  SourceFormat = GL_BGRA; // Was GL_RGBA;
+			  SourceFormat = GL_BGRA; // desktop: upload BGRA data as-is
 			else
-			  SourceFormat = GL_RGBA; // ES prefers RGBA...
+			  SourceFormat = GL_RGBA; // ES/WebGL: no GL_BGRA source; the unpack loop swaps R<->B into Compose
 			break;
 #if ENGINE_VERSION==227
 			// RGB10A2_LM. Used for HDLightmaps.
@@ -366,7 +402,8 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			// stijn: this was case TEXF_RGBA8 before, but TEXF_RGBA8 is a synonym for TEXF_BGRA8. The pixel format is actually BGRA8, though, so we might as well use that
 		case TEXF_BGRA8:
 			InternalFormat = UnpackSRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
-			SourceFormat = GL_BGRA; // Was GL_RGBA;
+			MinComposeSize = Info.Mips[Bind->BaseMip]->USize * Info.Mips[Bind->BaseMip]->VSize * 4;
+			SourceFormat = (OpenGLVersion == GL_Core) ? GL_BGRA : GL_RGBA; // ufront (2.12): WebGL2 has NO GL_BGRA source ("texImage2D: invalid format" -> BLACK surface); ES swaps B<->R below + uploads GL_RGBA
 			break;
 
 #if ENGINE_VERSION==227 && !defined(__LINUX_ARM__)
@@ -383,6 +420,18 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			break;
 			// S3TC -- Ubiquitous Extension.
 		case TEXF_BC1:
+#if ENGINE_VERSION==400
+			if (DecodeDXT1)
+			{
+				// ufront (WebGL2): decode to RGBA8 and upload uncompressed (see the mip loop below). Size for
+				// the block-padded decode buffer (the block decoder writes full 4x4 blocks).
+				MinComposeSize = ((Info.Mips[Bind->BaseMip]->USize + 3) & ~3) * ((Info.Mips[Bind->BaseMip]->VSize + 3) & ~3) * 4;
+				InternalFormat = UnpackSRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+				SourceFormat = GL_RGBA;
+				SourceType = GL_UNSIGNED_BYTE;
+				break;
+			}
+#endif
 			if (OpenGLVersion == GL_Core)
 			{
 				/*
@@ -471,7 +520,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 #endif
 			// Default: Mark as unsupported.
 		default:
-			GWarn->Logf(TEXT("Unknown texture format %ls on texture %ls."), *FTextureFormatString(Info.Format), Info.Texture->GetPathName());
+			GWarn->Logf(TEXT("Unknown texture format %s on texture %s."), *FTextureFormatString(Info.Format), Info.Texture->GetPathName());
 			UnsupportedTexture = true;
 			break;
 		}
@@ -503,7 +552,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			glTexSubImage2D(GL_TEXTURE_2D, ++MaxLevel, U, V, UL, VL, SourceFormat, SourceType, TextureData);
 		else glTextureSubImage2D(Bind->Id, ++MaxLevel, U, V, UL, VL, SourceFormat, SourceType, TextureData);
 
-		//debugf(TEXT("Partially reuploaded texture - U %d - V %d - UL %d - VL %d - Name %ls"), U, V, UL, VL, *FObjectName(Info.Texture));
+		//debugf(TEXT("Partially reuploaded texture - U %d - V %d - UL %d - VL %d - Name %s"), U, V, UL, VL, *FObjectName(Info.Texture));
 	}
 	else if (!UnsupportedTexture)
 	{
@@ -547,7 +596,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 						for (INT i = 0; i < Count; i++)
 						{
 							FColor Color = ((FColor*)Mip->DataPtr)[i];
-							Exchange(Color.R, Color.B);
+							/* ufront (2.12): NO R<->B swap. Lightmaps are in engine FColor order -- the same order the P8/palette path uploads RAW as GL_RGBA with correct colors. The old Exchange(R,B) made lightmaps R/B-swapped RELATIVE to textures -> "reds look blue" (GPU-independent). */
 							*Ptr++ = *(DWORD*)&Color;
 						}
 					}
@@ -564,7 +613,6 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 					// RGB8/RGBA8 -- Actually used by Brother Bear.
 				case TEXF_RGB8:
 				case TEXF_RGBA8_:
-				case TEXF_BGRA8:
 #if ENGINE_VERSION==227
 				case TEXF_RGBA16:
 				case TEXF_RGB16_:
@@ -572,8 +620,39 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 					ImgSrc = Mip->DataPtr;
 					break;
 
+				// TEXF_BGRA8 -- true BGRA package textures. ufront (2.12): on ES/WebGL there is no GL_BGRA
+				// source format (texImage2D "invalid format" -> the texture fails -> BLACK surface), so swap
+				// B<->R into Compose and upload as GL_RGBA. Desktop uploads raw via GL_BGRA.
+				case TEXF_BGRA8:
+					if (OpenGLVersion == GL_Core)
+						ImgSrc = Mip->DataPtr;
+					else
+					{
+						ImgSrc = Compose;
+						DWORD* PtrB = (DWORD*)Compose;
+						INT CountB = USize * VSize;
+						for (INT i = 0; i < CountB; i++)
+						{
+							FColor Color = ((FColor*)Mip->DataPtr)[i];
+							Exchange(Color.R, Color.B);
+							*PtrB++ = *(DWORD*)&Color;
+						}
+					}
+					break;
+
 					// S3TC -- Ubiquitous Extension. Was TEXF_DXTx before
 				case TEXF_BC1:
+#if ENGINE_VERSION==400
+					if (DecodeDXT1)
+					{
+						// ufront (WebGL2): software-decode this non-4-aligned DXT1 mip to RGBA8. CompImageSize
+						// stays 0 so the uncompressed glTexImage2D path (with the RGBA8 InternalFormat set in
+						// the format switch) is used.
+						XOpenGLDecodeDXT1Image(Mip->DataPtr, USize, VSize, (DWORD*)Compose);
+						ImgSrc = Compose;
+						break;
+					}
+#endif
 #if ENGINE_VERSION==227 || UNREAL_TOURNAMENT_OLDUNREAL
 				case TEXF_BC2:
 				case TEXF_BC3:
@@ -586,22 +665,34 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 				case TEXF_BC6H_S:
 				case TEXF_BC7:
 					CompImageSize = FTextureBytes(Info.Format, USize, VSize);
+#else
+					// ufront (v400): TEXF_BC1 == TEXF_DXT1 must reach this compressed-upload path on v400
+					// too (it was trapped inside the 227/OLDUNREAL #if -> fell through to the "Unpacking
+					// unknown format" appErrorf once S3TC was enabled on WebGL2). FTextureBytes is
+					// OLDUNREAL-only; v400 only lands here for DXT1, which is 8 bytes per 4x4 block.
+					CompImageSize = Max(1, (USize + 3) / 4) * Max(1, (VSize + 3) / 4) * 8;
+#endif
 					ImgSrc = Mip->DataPtr;
 					break;
-#endif
 
 					// Should not happen (TM).
 				default:
-					appErrorf(TEXT("Unpacking unknown format %ls on %ls."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName());
+					appErrorf(TEXT("Unpacking unknown format %s on %s."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName());
 					break;
 				}
 			}
 			else
 			{
+#if ENGINE_VERSION==400
+				// v400 has no appMsgf; just log (this is an editor-only diagnostic).
 				if (GIsEditor)
-					appMsgf(TEXT("Unpacking %ls on %ls failed due to invalid data."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName());
+					GWarn->Logf(TEXT("Unpacking %s on %s failed due to invalid data."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName());
+#else
+				if (GIsEditor)
+					appMsgf(TEXT("Unpacking %s on %s failed due to invalid data."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName());
+#endif
 				else
-					GWarn->Logf(TEXT("Unpacking %ls on %ls failed due to invalid data."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName());
+					GWarn->Logf(TEXT("Unpacking %s on %s failed due to invalid data."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName());
 				break;
 			}
 
@@ -655,11 +746,11 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			if (GenerateMipMaps)
 				break;
 		}
-		unguardf((TEXT("Unpacking %ls on %ls crashed due to invalid data."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName()));
+		unguardf((TEXT("Unpacking %s on %s crashed due to invalid data."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName()));
 
 		// This should not happen. If it happens, a sanity check is missing above.
 		if (!GenerateMipMaps && MaxLevel == -1)
-			GWarn->Logf(TEXT("No mip map unpacked for texture %ls."), Info.Texture->GetPathName());
+			GWarn->Logf(TEXT("No mip map unpacked for texture %s."), Info.Texture->GetPathName());
 	}
 
 	// Create and unpack a chequerboard fallback texture texture for an unsupported format.
@@ -782,7 +873,7 @@ void UXOpenGLRenderDevice::SetTexture(INT Multi, FTextureInfo& Info, DWORD PolyF
 
         if (!Bind->BindlessTexHandle)
         {
-            GWarn->Logf(TEXT("Failed to get sampler for bindless texture: %ls!"), Info.Texture ? Info.Texture->GetFullName() : TEXT("LightMap/FogMap"));
+            GWarn->Logf(TEXT("Failed to get sampler for bindless texture: %s!"), Info.Texture ? Info.Texture->GetFullName() : TEXT("LightMap/FogMap"));
             Bind->BindlessTexHandle = 0;
         }
         else
@@ -897,7 +988,7 @@ void UXOpenGLRenderDevice::SetBlend(DWORD PolyFlags)
 			{
                 if (SimulateMultiPass)//( !(PolyFlags & PF_Mirrored)
                 {
-                    //debugf(TEXT("PolyFlags %ls ActiveProgram %i"), *GetPolyFlagString(PolyFlags), ActiveProgram);
+                    //debugf(TEXT("PolyFlags %s ActiveProgram %i"), *GetPolyFlagString(PolyFlags), ActiveProgram);
 					glBlendFunc(GL_SRC_ALPHA, GL_SRC1_COLOR);
                 }
                 else glBlendFunc( GL_ONE, GL_ONE_MINUS_SRC_COLOR );

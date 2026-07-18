@@ -2675,6 +2675,15 @@ int gladLoadGLLoader(GLADloadproc load) {
 	if(glGetString == NULL) return 0;
 	if(glGetString(GL_VERSION) == NULL) return 0;
 	find_coreGL();
+#ifdef __EMSCRIPTEN__
+	// ufront (WebGL2): the version string is "OpenGL ES 3.0 (WebGL 2.0 ...)", which find_coreGL parses as
+	// GL 3.0 — so it leaves GLAD_GL_VERSION_3_1..3_3 unset and skips loading those entry points. But WebGL2
+	// (== GLES 3.0) DOES provide the GL 3.1-equivalent UBO functions and 3.3-equivalent instancing/samplers.
+	// Force the flags so load_GL_VERSION_3_1/3_2/3_3 run; functions WebGL2 lacks just resolve to null.
+	GLAD_GL_VERSION_3_1 = 1;
+	GLAD_GL_VERSION_3_2 = 1;
+	GLAD_GL_VERSION_3_3 = 1;
+#endif
 	load_GL_VERSION_1_0(load);
 	load_GL_VERSION_1_1(load);
 	load_GL_VERSION_1_2(load);
