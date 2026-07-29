@@ -17,6 +17,18 @@
 	* fixes, cleanups, (AZDO) optimizations, etc, etc, etc.
 =============================================================================*/
 
+#if defined(__EMSCRIPTEN__) && defined(__EMSCRIPTEN_PTHREADS__)
+// ufront 2.13.2 — on a threaded web build the engine runs on a worker and NSDLViewport creates the WebGL
+// context directly (Emscripten #24792 makes SDL's EGL path unusable there). SDL therefore owns no GL
+// context, so the three SDL GL calls this driver makes — adopt-current, make-current, get-proc-address —
+// have to come from Emscripten instead. Everything else, including the v400 "don't create or swap our own
+// context" rule, is unchanged.
+//
+// Included FIRST, ahead of the engine headers: this pulls in <time.h>, and UE1's UnFile.h #defines
+// clock(Timer), which turns time.h's `clock_t clock(void)` into a syntax error pointing at a system header.
+#include <emscripten/html5_webgl.h>
+#endif
+
 // Include GLM
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -53,12 +65,25 @@ namespace
 
 	inline bool XOpenGLSetSwapInterval(int Interval)
 	{
+#if defined(__EMSCRIPTEN__) && defined(__EMSCRIPTEN_PTHREADS__)
+		// Presentation is the viewport's (explicitSwapControl + emscripten_webgl_commit_frame), so SDL's
+		// swap interval is meaningless here and would only fail against a context SDL does not own.
+		(void)Interval;
+		return true;
+#else
 		return XOpenGLSDLCallSucceeded(SDL_GL_SetSwapInterval(Interval));
+#endif
 	}
 
 	inline bool XOpenGLMakeCurrent(SDL_Window* Window, SDL_GLContext Context)
 	{
+#if defined(__EMSCRIPTEN__) && defined(__EMSCRIPTEN_PTHREADS__)
+		(void)Window;
+		return emscripten_webgl_make_context_current(
+			(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE)(intptr_t)Context) == EMSCRIPTEN_RESULT_SUCCESS;
+#else
 		return XOpenGLSDLCallSucceeded(SDL_GL_MakeCurrent(Window, Context));
+#endif
 	}
 
 	inline SDL_Window* XOpenGLCreateHiddenGLWindow(const char* Title, int Width, int Height)
@@ -80,7 +105,13 @@ namespace
 
 	inline void XOpenGLDestroyContext(SDL_GLContext Context)
 	{
-#if SDL2BUILD
+#if defined(__EMSCRIPTEN__) && defined(__EMSCRIPTEN_PTHREADS__)
+		// ufront 2.13.2: on a threaded web build the context belongs to NSDLViewport (v400 adopts it — see
+		// CreateOpenGLContext) and SDL never owned it, so SDL_GL_DeleteContext here would either fail or
+		// tear down the viewport's only context. The main Exit path is already v400-excluded for exactly
+		// that reason; this covers the remaining call sites (QueryOnly, ShutdownAfterError).
+		(void)Context;
+#elif SDL2BUILD
 		SDL_GL_DeleteContext(Context);
 #elif SDL3BUILD
 		SDL_GL_DestroyContext(Context);
@@ -857,7 +888,14 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 	// (the viewport owns window + swap). (A desktop two-context experiment to force strict ES3.0 was
 	// dropped: NVIDIA only exposes ES 3.2 and the second context split resources -> WebGL2 strictness can
 	// only be validated in-browser, and WebGL has a single context anyway.)
+#if defined(__EMSCRIPTEN__) && defined(__EMSCRIPTEN_PTHREADS__)
+	// ufront 2.13.2: the context to adopt was created with emscripten_webgl_create_context on the worker,
+	// so SDL knows nothing about it and SDL_GL_GetCurrentContext() would hand back NULL — which reads as
+	// "context creation failed" and takes the driver down the fallback path.
+	glContext = (SDL_GLContext)(intptr_t)emscripten_webgl_get_current_context();
+#else
 	glContext = SDL_GL_GetCurrentContext();
+#endif
 #else
 	glContext = SDL_GL_CreateContext((SDL_Window*)Window);
 #endif
@@ -940,7 +978,14 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 	// with the ES3 subset), so the ES3 functions XOpenGL needs (UBO/VAO/glMapBufferRange/instancing) get
 	// resolved via emscripten's GetProcAddress. The ES2 loader would miss all of those. GL4-only entry
 	// points that WebGL2 lacks resolve to null and are gated off at runtime by CheckExtensions.
+#if defined(__EMSCRIPTEN_PTHREADS__)
+	// ufront 2.13.2: SDL owns no context on a threaded build, so SDL_GL_GetProcAddress resolves against
+	// nothing and hands back nulls — glad would then load a table of null entry points. Emscripten's own
+	// resolver is context-aware and works on the worker.
+	gladLoadGLLoader((GLADloadproc)emscripten_webgl_get_proc_address);
+#else
 	gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
+#endif
 #else
 	if (IsES())
 		gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress);
