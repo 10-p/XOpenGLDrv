@@ -16,9 +16,36 @@
 #include "XOpenGL.h"
 
 
+#ifdef __EMSCRIPTEN__
+// ufront: exact-token search of the space-separated AllExtensions list that XOpenGL::SetRes builds with
+// glGetStringi. AllExtensions terminates every token with a space, so prepending one makes each token
+// bounded on both sides — "EXT_sRGB" then cannot match inside "GL_EXT_sRGB" by accident.
+static UBOOL XOpenGLHasExtension(const FString& AllExtensions, const FString& Name)
+{
+	const FString Haystack = FString(TEXT(" ")) + AllExtensions;
+	const FString Needle = FString(TEXT(" ")) + Name + FString(TEXT(" "));
+	return Haystack.InStr(*Needle) != -1;
+}
+#endif
+
 UBOOL UXOpenGLRenderDevice::GLExtensionSupported(FString ExtensionName)
 {
-#if !_WIN32
+#ifdef __EMSCRIPTEN__
+	// ufront: SDL owns no GL context on the web — the viewport creates it with
+	// emscripten_webgl_create_context and this driver adopts it (see CreateOpenGLContext, ufront 2.13.2).
+	// SDL_GL_ExtensionSupported therefore resolves against nothing and reports EVERY extension missing,
+	// which silently turned SupportsS3TC off and made every DXT texture render as the chequerboard
+	// placeholder. Ask the context we actually render into instead, via the list SetRes already built.
+	//
+	// WebGL also spells extensions WITHOUT the "GL_" prefix (WEBGL_compressed_texture_s3tc,
+	// EXT_texture_filter_anisotropic), so a caller asking for the desktop "GL_"-prefixed name is
+	// retried de-prefixed rather than being told the extension is absent.
+	if (XOpenGLHasExtension(AllExtensions, ExtensionName))
+		return TRUE;
+	if (ExtensionName.Left(3) == FString(TEXT("GL_")))
+		return XOpenGLHasExtension(AllExtensions, ExtensionName.Mid(3));
+	return FALSE;
+#elif !_WIN32
     return SDL_GL_ExtensionSupported(appToAnsi(*ExtensionName));
 #else
     return AllExtensions.InStr(*FString::Printf(TEXT("%s "), *ExtensionName)) != -1;
