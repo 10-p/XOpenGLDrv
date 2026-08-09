@@ -42,7 +42,7 @@
 #include <sys/time.h>
 #endif
 
-#if !_WIN32
+#if SDLBUILD
 namespace
 {
 	template <typename TResult>
@@ -336,7 +336,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 	unguard;
 }
 
-#if _WIN32
+#if !SDLBUILD
 HWND UXOpenGLRenderDevice::CreateTemporaryWindow(HDC& OutDC) 
 {
 	// Create a temporary context so we can load the wgl functions
@@ -558,7 +558,7 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	BindMap = ShareLists ? SharedBindMap : &LocalBindMap;
 
 	// Initialize process-wide GL state
-#if _WIN32
+#if !SDLBUILD
 	// Get list of device modes.
 	for (INT i = 0;; i++)
 	{
@@ -704,7 +704,7 @@ void UXOpenGLRenderDevice::PostEditChange()
 	unguard;
 }
 
-#if _WIN32
+#if !SDLBUILD
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uiMsg, WPARAM wParam, LPARAM lParam)
 {
 	if (uiMsg == WM_CLOSE)
@@ -716,7 +716,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uiMsg, WPARAM wParam, LPARAM lParam)
 }
 #endif
 
-#if _WIN32
+#if !SDLBUILD
 UBOOL UXOpenGLRenderDevice::SetWindowPixelFormat(HDC DC)
 {
 	guard(UXOpenGLRenderDevice::SetWindowPixelFormat);
@@ -748,7 +748,7 @@ UBOOL UXOpenGLRenderDevice::IsSupportedGLVersion(INT MajorVersion, INT MinorVers
 	SelectedMajorVersion = MajorVersion;
 	SelectedMinorVersion = MinorVersion;
 
-#if _WIN32
+#if !SDLBUILD
 	HDC TemphDC;
 	HWND TempWindow = CreateTemporaryWindow(TemphDC);
 #else
@@ -761,7 +761,7 @@ UBOOL UXOpenGLRenderDevice::IsSupportedGLVersion(INT MajorVersion, INT MinorVers
 	SelectedMajorVersion = TmpMajorVersion;
 	SelectedMinorVersion = TmpMinorVersion;
 
-#if _WIN32
+#if !SDLBUILD
 	DestroyTemporaryWindow(TempWindow, TemphDC);
 #else
 	DestroyTemporaryWindow(TempWindow);
@@ -844,7 +844,7 @@ void UXOpenGLRenderDevice::SelectGLVersion()
 	SelectedGLVersion = true;
 }
 
-#if !_WIN32
+#if SDLBUILD
 UBOOL UXOpenGLRenderDevice::SetSDLAttributes() const
 {
     guard(UXOpenGLRenderDevice::SetSDLAttributes);
@@ -878,7 +878,7 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 	if (!Window)
 		appErrorf(TEXT("XOpenGL: No Window found!"));
 
-#if !_WIN32
+#if SDLBUILD
     // On non-Windows targets, we need to specify the requested GL version
     // before creating the window
 #if ENGINE_VERSION==400
@@ -958,7 +958,7 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 
 	if (QueryOnly)
 	{
-#if _WIN32
+#if !SDLBUILD
 		wglDeleteContext(glContext);
 		ReleaseDC(TmpWnd, hDC);
 	#else
@@ -970,7 +970,7 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 
 	MakeCurrent();
 
-#if _WIN32
+#if !SDLBUILD
 	if (!gladLoadGL())
 		appErrorf(TEXT("XOpenGL: Init failed!"));
 #elif defined(__EMSCRIPTEN__)
@@ -1007,7 +1007,7 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 		AllExtensions += TEXT(" ");
 	}
 
-#if _WIN32
+#if !SDLBUILD
 	if (wglGetExtensionsStringARB)
 		AllExtensions += appFromAnsi(wglGetExtensionsStringARB(hDC));
 #endif
@@ -1034,7 +1034,7 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 		GWarn->Logf(TEXT("XOpenGL: OpenGL debugging enabled, this can cause severe performance drain!"));
 	}
 
-#if _WIN32
+#if !SDLBUILD
 	if (ShareLists && AllContexts.Num())
 		check(wglShareLists(AllContexts(0), glContext) == 1);
 #endif
@@ -1050,7 +1050,7 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 void UXOpenGLRenderDevice::MakeCurrent()
 {
 	guard(UXOpenGLRenderDevice::MakeCurrent);
-	#if !_WIN32
+	#if SDLBUILD
 //	if (!CurrentGLContext || CurrentGLContext != glContext)
 	{
 		bool Result = XOpenGLMakeCurrent(Window, glContext);
@@ -1152,7 +1152,7 @@ UBOOL UXOpenGLRenderDevice::SetRes(INT NewX, INT NewY, INT NewColorBytes, UBOOL 
 			return 0;
 
 		// stijn: force a switch to our context if we're in the editor
-#if _WIN32
+#if !SDLBUILD
 		if (GIsEditor)
 		{
 			wglMakeCurrent(NULL, NULL);
@@ -1163,7 +1163,7 @@ UBOOL UXOpenGLRenderDevice::SetRes(INT NewX, INT NewY, INT NewColorBytes, UBOOL 
 		return 1;
 	}
 
-#if _WIN32
+#if !SDLBUILD
 	// Change display settings.
 	if (Fullscreen)
 	{
@@ -1238,13 +1238,13 @@ UBOOL UXOpenGLRenderDevice::SetRes(INT NewX, INT NewY, INT NewColorBytes, UBOOL 
 	{
 		debugf(TEXT("XOpenGL: Change window size failed!"));
 		if (Fullscreen)
-#if _WIN32
+#if !SDLBUILD
 			ChangeDisplaySettingsW(NULL, 0);
 #endif
 		return 0;
 	}
 
-#if _WIN32
+#if !SDLBUILD
 	hWnd = (HWND)Viewport->GetWindow();
 #else
 	Window = (SDL_Window*)Viewport->GetWindow();
@@ -1284,7 +1284,7 @@ void UXOpenGLRenderDevice::UnsetRes()
 {
 	guard(UXOpenGLRenderDevice::UnsetRes);
 
-#if _WIN32
+#if !SDLBUILD
 	if (WasFullscreen)
 		ChangeDisplaySettingsW(NULL, 0);
 #endif
@@ -1293,7 +1293,7 @@ void UXOpenGLRenderDevice::UnsetRes()
 
 void UXOpenGLRenderDevice::SwapControl()
 {
-#if !_WIN32
+#if SDLBUILD
 	guard(SwapControl);
 	switch (UseVSync)
 	{
@@ -1493,7 +1493,7 @@ UBOOL UXOpenGLRenderDevice::Exec(const TCHAR* Cmd, FOutputDevice& Ar)
 	}
 	if (ParseCommand(&Cmd, TEXT("GetRes")))
 	{
-#if _WIN32
+#if !SDLBUILD
 		TArray<FPlane> Relevant;
 		INT i;
 		for (i = 0; i< SupportedDisplayModes.Num(); i++)
@@ -2021,7 +2021,7 @@ void UXOpenGLRenderDevice::Unlock(UBOOL Blit)
 			SetProgram(No_Prog);
 			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
-#if !_WIN32
+#if SDLBUILD
 #if ENGINE_VERSION==400
 			// ufront (v400): NSDLViewport owns the window and performs SDL_GL_SwapWindow in its own
 			// present path (UNSDLViewport::Unlock). Don't double-swap here — a second swap would present
@@ -2337,7 +2337,7 @@ void UXOpenGLRenderDevice::Exit()
 	EditorStateBuffer.DeleteBuffer();
 	DistanceFogBuffer.DeleteBuffer();
 
-	#if !_WIN32
+	#if SDLBUILD
 #if ENGINE_VERSION==400
 		// ufront (v400): we adopted NSDLViewport's context (see CreateOpenGLContext) — it destroys the
 		// context + window itself in CloseWindow. Do NOT delete/unbind it here (double-free / stealing the
@@ -2453,7 +2453,7 @@ void UXOpenGLRenderDevice::ShutdownAfterError()
 	}
 #endif
 
-	#if !_WIN32
+	#if SDLBUILD
 		CurrentGLContext = NULL;
 	# if !UNREAL_TOURNAMENT_OLDUNREAL
 		XOpenGLDestroyContext(glContext);
@@ -2619,7 +2619,7 @@ void UXOpenGLRenderDevice::DrawStats(FSceneNode* Frame)
 }
 
 // Static variables.
-#if !_WIN32
+#if SDLBUILD
 SDL_GLContext		UXOpenGLRenderDevice::CurrentGLContext = NULL;
 TArray<SDL_GLContext> UXOpenGLRenderDevice::AllContexts;
 #else

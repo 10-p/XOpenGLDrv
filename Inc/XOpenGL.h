@@ -38,7 +38,11 @@
     #include <unistd.h>
 #endif
 
-#if !_WIN32
+// ufront 2.34 — `_WIN32` here never meant "the Windows platform"; it meant "this build owns its own
+// WGL window and GL context". engine-ut99 drives XOpenGL through NSDLDrv/SDL2 on EVERY target, MinGW
+// Windows included, so the switch has to be the driver's own SDLBUILD (forced on by the engine's build
+// glue). Behaviour is unchanged for upstream/MSVC builds, where SDLBUILD is 0.
+#if SDLBUILD
 	#if SDL2BUILD
 		#include <SDL2/SDL.h>
 	#elif SDL3BUILD
@@ -593,7 +597,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	//
 	// Window, OS, and global GL context state
 	//
-#ifdef _WIN32
+#if !SDLBUILD
 	HGLRC glContext;
 	HWND hWnd;
 	HDC hDC;
@@ -647,7 +651,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	FGammaRamp OriginalRamp; // to restore original value at exit or crash.
 	FLOAT Gamma;
 
-#if !_WIN32
+#if SDLBUILD
 	static SDL_GLContext CurrentGLContext;
 	static TArray<SDL_GLContext> AllContexts;
 #else
@@ -2030,7 +2034,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	UBOOL IsSupportedGLVersion(INT MajorVersion, INT MinorVersion);
 	void SelectGLVersion();
 
-#if !_WIN32
+#if SDLBUILD
     UBOOL SetSDLAttributes() const;
 	SDL_Window* CreateTemporaryWindow() const;
 	void DestroyTemporaryWindow(SDL_Window* Window) const;
