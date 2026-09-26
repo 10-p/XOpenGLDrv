@@ -42,6 +42,18 @@ static void BufferVert(UXOpenGLRenderDevice::DrawGouraudVertex* Vert, FTransText
 	Vert->FogColor		= glm::vec4(P->Fog.X, P->Fog.Y, P->Fog.Z, P->Fog.W);
 }
 
+#if XOGL_HP2
+// hp2: 433 particles never write FTransTexture::Normal (Render/Src/UnParticleRn.cpp SetTrans/SetTrans2D),
+// so an indexed DrawTriangles batch can carry garbage normals. Only HW lighting and bump mapping read
+// them; otherwise feed zeros so nothing downstream can normalize() garbage into NaNs.
+static void BufferVertHP2(UXOpenGLRenderDevice::DrawGouraudVertex* Vert, FTransTexture* P, glm::uint DrawID, UBOOL UseNormals)
+{
+	BufferVert(Vert, P, DrawID);
+	if (!UseNormals)
+		Vert->Normals = glm::vec4(0.f, 0.f, 0.f, 0.f);
+}
+#endif
+
 static void SetTextureHelper
 (
 	UXOpenGLRenderDevice* RenDev, 
@@ -168,9 +180,17 @@ void UXOpenGLRenderDevice::FinishGouraudCall(FTextureInfo& Info, DWORD DrawFlags
 	RenDev Interface
 -----------------------------------------------------------------------------*/
 
+#if XOGL_HP2
+// hp2: on 433 this is DrawTriangles' fan path (PolyFlags already went through HP2AdjustPolyFlags). The
+// driver must not override DrawGouraudPolygon itself — the base class forwards it to DrawTriangles.
+void UXOpenGLRenderDevice::DrawGouraudFan(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, DWORD PolyFlags, FSpanBuffer* Span)
+{
+	guard(UXOpenGLRenderDevice::DrawGouraudFan);
+#else
 void UXOpenGLRenderDevice::DrawGouraudPolygon(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, DWORD PolyFlags, FSpanBuffer* Span)
 {
 	guard(UXOpenGLRenderDevice::DrawGouraudPolygon);
+#endif
 
 	if (NoDrawGouraud)
 		return;
@@ -229,6 +249,92 @@ void UXOpenGLRenderDevice::DrawGouraudPolygon(FSceneNode* Frame, FTextureInfo& I
     STAT(unclockFast(Stats.GouraudPolyCycles));
 	unguard;
 }
+
+#if XOGL_HP2
+// hp2: == retail D3D7 (ACTORPOLY_VERTEX_MAX, D3DDrv/Src/Direct3D7.cpp) and SoftDrv. The mesh batcher sizes
+// its vertex/index buffers ONCE, from the first device that renders a mesh (Render/Src/UnMeshRn.cpp), so
+// every device of the port returns the same value. The Gouraud VBO (DRAWGOURAUDPOLY_SIZE*12 vertices)
+// holds a full 6*256-index mesh batch expanded to a plain triangle list.
+INT UXOpenGLRenderDevice::MaxVertices()
+{
+	return 256;
+}
+
+// hp2: the only path HP2 meshes (vertex, LOD and CPU-skinned skeletal), particles and decals use. Three
+// input shapes, exactly as retail D3D7 DrawTriangles:
+//  * Indices != NULL                     -> indexed triangle list, NumIndices/3 triangles (meshes,
+//                                           particles; particle batches may hold Pts no index refers to);
+//  * Indices == NULL, NumIndices==NumPts -> ONE convex polygon drawn as a fan (decals incl. actor blob
+//                                           shadows, and the base DrawGouraudPolygon forwarder);
+//  * Indices == NULL otherwise           -> plain triangle list of NumPts vertices.
+// Per-vertex alpha is FTransTexture::Light.W; it is used when HP2AdjustPolyFlags selected straight alpha.
+void UXOpenGLRenderDevice::DrawTriangles(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, _WORD* Indices, INT NumIndices, DWORD PolyFlags, FSpanBuffer* Span)
+{
+	guard(UXOpenGLRenderDevice::DrawTriangles);
+
+	if (NoDrawGouraud || NumPts < 3)
+		return;
+
+	PolyFlags = HP2AdjustPolyFlags(PolyFlags, FALSE, &Info);
+
+	if (!Indices && NumIndices == NumPts)
+	{
+		DrawGouraudFan(Frame, Info, Pts, NumPts, PolyFlags, Span);
+		return;
+	}
+
+	const INT OutVertexCount = Indices ? (NumIndices / 3) * 3 : (NumPts / 3) * 3;
+	if (OutVertexCount < 3)
+		return;
+
+	auto Shader = dynamic_cast<DrawGouraudProgram*>(Shaders[Gouraud_Prog]);
+
+	STAT(clockFast(Stats.GouraudPolyCycles));
+	SetProgram(Gouraud_Prog);
+
+	if (!Shader->VertBuffer.CanBuffer(OutVertexCount)) // the parameters and draw buffers are checked in PrepareGouraudCall
+	{
+		Shader->Flush(true);
+
+		// just in case...
+		if (OutVertexCount >= Shader->VertexBufferSize)
+		{
+			GWarn->Logf(TEXT("DrawTriangles batch too big (%i vertices)!"), OutVertexCount);
+			STAT(unclockFast(Stats.GouraudPolyCycles));
+			return;
+		}
+	}
+
+	DWORD DrawFlags = PrepareGouraudCall(Frame, Info, PolyFlags);
+	const UBOOL UseNormals = UseHWLighting || BumpMaps;
+
+	Shader->DrawBuffer.StartDrawCall();
+	auto Out = Shader->VertBuffer.GetCurrentElementPtr();
+	const auto DrawID = Shader->DrawBuffer.GetDrawID();
+
+	if (Indices)
+	{
+		for (INT i = 0; i < OutVertexCount; i++)
+		{
+			checkSlow(Indices[i] < NumPts);
+			BufferVertHP2(Out++, Pts[Indices[i]], DrawID, UseNormals);
+		}
+	}
+	else
+	{
+		for (INT i = 0; i < OutVertexCount; i++)
+			BufferVertHP2(Out++, Pts[i], DrawID, UseNormals);
+	}
+
+	Shader->DrawBuffer.EndDrawCall(OutVertexCount);
+	Shader->VertBuffer.Advance(OutVertexCount);
+	Shader->ParametersBuffer.Advance(1);
+
+	FinishGouraudCall(Info, DrawFlags);
+	STAT(unclockFast(Stats.GouraudPolyCycles));
+	unguard;
+}
+#endif
 
 #if ENGINE_VERSION==227 || UNREAL_TOURNAMENT_OLDUNREAL
 void UXOpenGLRenderDevice::DrawGouraudPolyList(FSceneNode* Frame, FTextureInfo& Info, FTransTexture* Pts, INT NumPts, DWORD PolyFlags, FSpanBuffer* Span)

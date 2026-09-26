@@ -1980,8 +1980,18 @@ class UXOpenGLRenderDevice : public URenderDevice
 	UBOOL Exec(const TCHAR* Cmd, FOutputDevice& Ar);
 	void  Lock(FPlane InFlashScale, FPlane InFlashFog, FPlane ScreenClear, DWORD RenderLockFlags, BYTE* InHitData, INT* InHitSize);
 	void  Unlock(UBOOL Blit);
+#if XOGL_HP2
+	// hp2: the 433 face (Engine/Inc/UnRenDev.h): 5-arg DrawComplexSurface, pure MaxVertices/DrawTriangles.
+	// DrawGouraudPolygon is deliberately NOT declared: 433's base URenderDevice::DrawGouraudPolygon is a
+	// non-pure forwarder to DrawTriangles(..., NULL, NumPts, ...) (a fan), and nothing in HP2's
+	// Render/Engine calls it any more — meshes, particles and decals all come through DrawTriangles.
+	void  DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& Surface, FSurfaceFacet& Facet, DWORD PolyFlags, BYTE cAlpha);
+	INT   MaxVertices();
+	void  DrawTriangles(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, _WORD* Indices, INT NumIndices, DWORD PolyFlags, FSpanBuffer* Span);
+#else
 	void  DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& Surface, FSurfaceFacet& Facet);
 	void  DrawGouraudPolygon(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, DWORD PolyFlags, FSpanBuffer* Span);
+#endif
 	void  DrawTile(FSceneNode* Frame, FTextureInfo& Info, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, FLOAT U, FLOAT V, FLOAT UL, FLOAT VL, class FSpanBuffer* Span, FLOAT Z, FPlane Color, FPlane Fog, DWORD PolyFlags);
 	void  Draw3DLine(FSceneNode* Frame, FPlane Color, DWORD LineFlags, FVector P1, FVector P2);
 	void  Draw2DLine(FSceneNode* Frame, FPlane Color, DWORD LineFlags, FVector P1, FVector P2);
@@ -2020,6 +2030,12 @@ class UXOpenGLRenderDevice : public URenderDevice
 	//
 	DWORD PrepareGouraudCall(FSceneNode* Frame, FTextureInfo& Info, DWORD PolyFlags);
 	void FinishGouraudCall(FTextureInfo& Info, DWORD DrawFlags);
+#if XOGL_HP2
+	// hp2: the v400 DrawGouraudPolygon body, kept as DrawTriangles' fan path (one convex polygon).
+	void  DrawGouraudFan(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, DWORD PolyFlags, FSpanBuffer* Span);
+	// hp2: 433 blend semantics UT v400 never had (Src/SetTexture.cpp).
+	DWORD HP2AdjustPolyFlags(DWORD PolyFlags, UBOOL IsTile, FTextureInfo* Info);
+#endif
 	void PrepareSimpleCall(ShaderProgram* Shader, glm::uint& OldLineFlags, glm::uint LineFlags, glm::uint& OldBlendMode, glm::uint BlendMode);
 
 	//

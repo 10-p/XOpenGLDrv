@@ -45,7 +45,15 @@ static void SetTextureHelper
 	RenDev Interface
 -----------------------------------------------------------------------------*/
 
+#if XOGL_HP2
+// hp2: the 433 face (Engine/Inc/UnRenDev.h). Render passes the flags to use as an ARGUMENT: for Lumos
+// surfaces it is a modified copy of Surface.PolyFlags (PF_Occlude added/removed, Render/Src/UnRender.cpp),
+// so Surface.PolyFlags must not be read here. cAlpha is TRANSPARENCY (255 = gone, 0 = opaque) and only
+// means something on a Lumos surface; every other surface is passed 255 and ignores it.
+void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& Surface, FSurfaceFacet& Facet, DWORD InPolyFlags, BYTE cAlpha)
+#else
 void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& Surface, FSurfaceFacet& Facet)
+#endif
 {
 	guard(UXOpenGLRenderDevice::DrawComplexSurface);
 
@@ -61,7 +69,31 @@ void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& S
 
 	// Gather options
 	DWORD DrawFlags = ShaderDrawFlags::DF_None;
+#if XOGL_HP2
+	DWORD SurfPolyFlags   = InPolyFlags & ~PF_XOGL_AlphaBlend; // never trust content with the synthetic bit
+	FLOAT LumosOpacity    = 1.f;
+	DWORD LumosMaskedFlag = 0;
+	// Lumos surface: retail D3D7 tests `PolyFlags & PF_LumosAffected` (= PF_HighShadowDetail|PF_Modulated,
+	// ANY bit) and blends INVSRCALPHA/SRCALPHA with a = texA*cAlpha/255 (D3DDrv/Src/Direct3D7.cpp). That
+	// `&` also catches every plain PF_Modulated poly (it would make modulated BSP surfaces opaque), so a
+	// surface is Lumos here only when it carries PF_HighShadowDetail AND a blend bit. Same result as
+	// D3D7 for real Lumos surfaces: straight alpha with opacity (255-cAlpha)/255; depth writes as the
+	// PF_Occlude Render decided; the base x lightmap texturing stays the normal one, so the blend bits
+	// and the Lumos markers (PF_Gouraud = Appear, PF_DirtyShadows = AlwaysOn) are stripped.
+	if (!GIsEditor && (SurfPolyFlags & PF_HighShadowDetail) && (SurfPolyFlags & (PF_Modulated | PF_Translucent)))
+	{
+		LumosOpacity  = (FLOAT)(255 - cAlpha) / 255.f;
+		// A masked Lumos surface keeps its masked texture upload (palette index 0 -> alpha 0) but is drawn
+		// as plain alpha blend: the masked shader path would test alpha AFTER the opacity was multiplied in
+		// and drop the whole surface below 50% opacity. Index-0 texels still vanish (alpha 0 is discarded).
+		LumosMaskedFlag = SurfPolyFlags & PF_Masked;
+		SurfPolyFlags = (SurfPolyFlags & ~(PF_Modulated | PF_Translucent | PF_Masked | PF_HighShadowDetail | PF_Gouraud | PF_DirtyShadows)) | PF_XOGL_AlphaBlend;
+	}
+	const DWORD NextPolyFlags = GetPolyFlagsAndDrawFlags(SurfPolyFlags, DrawFlags, FALSE);
+	const DWORD DiffusePolyFlags = NextPolyFlags | LumosMaskedFlag;
+#else
 	const DWORD NextPolyFlags = GetPolyFlagsAndDrawFlags(Surface.PolyFlags, DrawFlags, FALSE);
+#endif
 	if (GIsEditor && NextPolyFlags & PF_Selected)
 		DrawFlags |= ShaderDrawFlags::DF_Selected;
 
@@ -69,7 +101,11 @@ void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& S
 
 	// Check if this draw call will change any global state. If so, we want to flush any pending draw calls before we make the changes
 	if (WillBlendStateChange(CurrentBlendPolyFlags, NextPolyFlags) || // Check if the blending mode will change
+#if XOGL_HP2
+		WillTextureStateChange(DiffuseTextureIndex, *Surface.Texture, DiffusePolyFlags) || // Check if the surface textures will change
+#else
 		WillTextureStateChange(DiffuseTextureIndex, *Surface.Texture, NextPolyFlags) || // Check if the surface textures will change
+#endif
 		(Surface.LightMap && WillTextureStateChange(LightMapIndex, *Surface.LightMap, NextPolyFlags)) ||
 		((Surface.FogMap && Surface.FogMap->Mips[0] && Surface.FogMap->Mips[0]->DataPtr) && WillTextureStateChange(FogMapIndex, *Surface.FogMap, NextPolyFlags)) ||
 		(Surface.DetailTexture && DetailTextures && WillTextureStateChange(DetailTextureIndex, *Surface.DetailTexture, NextPolyFlags)) ||
@@ -95,9 +131,20 @@ void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& S
 		DrawCallParams->DrawColor = HitTesting() ? FPlaneToVec4(HitColor) : FPlaneToVec4(Surface.FlatColor.Plane());
 
 	// Set Textures
+#if XOGL_HP2
+	SetTextureHelper(this, DiffuseTextureIndex, *Surface.Texture, DiffusePolyFlags, DrawFlags, ShaderDrawFlags::DF_DiffuseTexture, 0.0, &DrawCallParams->DiffuseUV, Surface.Texture->Texture ? &DrawCallParams->DiffuseInfo : nullptr, DrawCallParams->TexHandles);
+#else
 	SetTextureHelper(this, DiffuseTextureIndex, *Surface.Texture, NextPolyFlags, DrawFlags, ShaderDrawFlags::DF_DiffuseTexture, 0.0, &DrawCallParams->DiffuseUV, Surface.Texture->Texture ? &DrawCallParams->DiffuseInfo : nullptr, DrawCallParams->TexHandles);
+#endif
 	if (!Surface.Texture->Texture)
 		DrawCallParams->DiffuseInfo = glm::vec4(1.f, 0.f, 0.f, 1.f);
+#if XOGL_HP2
+	// Lumos opacity rides on the diffuse alpha factor: the complex fragment shader does
+	// `Color.a *= DiffuseInfo.z` (DrawComplex_GLSL.cpp) and forces the lightmap alpha to 1, so the factor
+	// reaches FragColor. The fallback DiffuseInfo above has z = 0, hence the explicit 1.
+	if (SurfPolyFlags & PF_XOGL_AlphaBlend)
+		DrawCallParams->DiffuseInfo.z = (Surface.Texture->Texture ? DrawCallParams->DiffuseInfo.z : 1.f) * LumosOpacity;
+#endif
 
 	if (Surface.LightMap)
 		SetTextureHelper(this, LightMapIndex, *Surface.LightMap, PF_None, DrawFlags, ShaderDrawFlags::DF_LightMap, -0.5, &DrawCallParams->LightMapUV, nullptr, DrawCallParams->TexHandles);

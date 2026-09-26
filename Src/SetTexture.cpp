@@ -944,6 +944,44 @@ DWORD UXOpenGLRenderDevice::GetPolyFlagsAndDrawFlags(DWORD PolyFlags, DWORD& Dra
     return PolyFlags;
 }
 
+#if XOGL_HP2
+// hp2: 433 blend semantics that UT v400/469 never had (retail D3D7 DrawTile/AdjustPolyFlags/SetBlending,
+// D3DDrv/Src/Direct3D7.cpp; SoftDrv DrawPoly.cpp). Called on entry by DrawTriangles and DrawTile, before
+// GetPolyFlagsAndDrawFlags/SetBlend see the flags.
+DWORD UXOpenGLRenderDevice::HP2AdjustPolyFlags(DWORD PolyFlags, UBOOL IsTile, FTextureInfo* Info)
+{
+	// The synthetic alpha-blend bit is driver-internal; content never sets it.
+	PolyFlags &= ~PF_XOGL_AlphaBlend;
+
+	// Tiles with an alpha palette (HUD/menu fades, spell icons) blend premultiplied like D3D7
+	// (PF_Highlighted -> GL_ONE, GL_ONE_MINUS_SRC_ALPHA in SetBlend). Tested on the incoming flags, as D3D7
+	// does, so a PF_Highlighted|PF_Translucent tile stays straight alpha below.
+	if (IsTile && Info && Info->Palette && Info->Palette[128].A != 255 && !(PolyFlags & PF_Translucent))
+		PolyFlags |= PF_Highlighted;
+
+	// PF_Highlighted|PF_Translucent = straight alpha ("post-multiplied source", D3D7 SRCALPHA/INVSRCALPHA):
+	// fading actors (AActor::Opacity < 1, alpha in Light.W, colour NOT premultiplied). Must be decided
+	// before SetBlend's "PF_Translucent wins" order, which would draw them as additive ghosts. With
+	// PF_Masked, follow SoftDrv: drop the pair and draw masked.
+	if ((PolyFlags & (PF_Highlighted | PF_Translucent)) == (PF_Highlighted | PF_Translucent))
+	{
+		PolyFlags &= ~(PF_Highlighted | PF_Translucent);
+		if (!(PolyFlags & PF_Masked))
+			PolyFlags |= PF_XOGL_AlphaBlend;
+	}
+
+	// Modulated polys never fog (D3D7 AdjustPolyFlags); 433 decals pass PF_Modulated|PF_RenderFog with a
+	// zeroed Fog.
+	if ((PolyFlags & (PF_Modulated | PF_RenderFog)) == (PF_Modulated | PF_RenderFog))
+		PolyFlags &= ~PF_RenderFog;
+
+	// Not reproduced on purpose: D3D7 routes every poly with ANY PF_LumosAffected bit (so every plain
+	// PF_Modulated one, e.g. all actor blob shadows) through the Lumos blend, where it is invisible.
+	// PF_HighShadowDetail on a mesh is not a Lumos marker either: Render applies Lumos to BSP surfaces only.
+	return PolyFlags;
+}
+#endif
+
 void UXOpenGLRenderDevice::SetBlend(DWORD PolyFlags)
 {
 	guard(UXOpenGLRenderDevice::SetBlend);
