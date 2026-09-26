@@ -192,7 +192,24 @@ enum ERenderZTest
 #ifndef PF_Premultiplied_AlphaBlend
 #define PF_Premultiplied_AlphaBlend 0
 #endif
+#endif
 
+// hp2: HP2 (433) has a real straight-alpha mode that UT v400 never had: PF_Highlighted|PF_Translucent
+// (fading actors, Opacity<1, alpha in FTransTexture::Light.W) and the Lumos surfaces (cAlpha). The
+// driver carries it internally on a synthetic poly flag in the one EPolyFlags bit 433 leaves free
+// (0x20000000, Engine/Inc/UnObj.h; content never sets it, HP2AdjustPolyFlags strips it on entry).
+// With PF_AlphaBlend real, the existing paths light up unchanged: SetBlend -> GL_SRC_ALPHA,
+// GL_ONE_MINUS_SRC_ALPHA; GetPolyFlagsAndDrawFlags -> DF_AlphaBlended (no PF_Occlude added); the
+// Gouraud shader multiplies the vertex alpha in. There is no premultiplied variant on 433
+// (PF_Highlighted alone keeps XOpenGL's GL_ONE, GL_ONE_MINUS_SRC_ALPHA).
+#if XOGL_HP2
+#define PF_XOGL_AlphaBlend          0x20000000
+#define PF_AlphaBlend               PF_XOGL_AlphaBlend
+#define PF_Straight_AlphaBlend      PF_XOGL_AlphaBlend
+#define PF_Premultiplied_AlphaBlend 0
+#endif
+
+#if XOGL_UE1_V4XX
 // v400's ETextureFormat uses numeric names (TEXF_P8/RGBA7/RGB16/DXT1/RGB8/RGBA8); UT469 renamed
 // several of them. Alias the 469 names the renderer's SetTexture switch uses to the equivalent v400
 // value so each real v400 format lands on a correct case. TEXF_RGBA8_/TEXF_RGB16_ have no v400
@@ -220,6 +237,8 @@ enum ERenderZTest
 #endif
 
 // v400 lacks these Core helpers. Only TEXF_DXT1 is a compressed format in v400.
+// hp2: 433's ETextureFormat is identical to v400's (TEXF_P8..TEXF_RGBA8 = 0..5), so the aliases, the
+// two helpers and ERenderZTest apply to it verbatim.
 static inline UBOOL FIsCompressedFormat(INT Format) { return Format == TEXF_DXT1; }
 static inline FString FTextureFormatString(INT Format)
 {
