@@ -406,7 +406,7 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	Viewport = InViewport;
 	glContext = NULL;
 	iPixelFormat = 0;
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 #ifdef __EMSCRIPTEN__
 	// ufront: THE single place the platform selects the profile. WebGL can only ever be WebGL2 == GLES 3.0,
 	// so force the ES_WEBGL profile here; the ini/StaticConstructor default (GL_Core) would otherwise emit
@@ -777,7 +777,7 @@ UBOOL UXOpenGLRenderDevice::IsSupportedGLVersion(INT MajorVersion, INT MinorVers
 //
 void UXOpenGLRenderDevice::SelectGLVersion()
 {
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 	// ufront (v400): we reuse NSDLViewport's already-current context, so there is nothing to probe or
 	// select here. Skip IsSupportedGLVersion() — it creates temporary SDL windows/contexts, which
 	// conflicts with the windowing driver's SDL video subsystem (and isn't needed for a shared context).
@@ -881,7 +881,7 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 #if SDLBUILD
     // On non-Windows targets, we need to specify the requested GL version
     // before creating the window
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 	// ufront (v400): do NOT create our own GL context (native or web). NSDLViewport already created the
 	// SDL GL context and made it current before Init — adopt it (like NOpenGLESDrv). On the web this is
 	// the single WebGL2 context; on native it's the desktop context. Exit()/Unlock() don't delete/swap it
@@ -2011,7 +2011,7 @@ void UXOpenGLRenderDevice::Unlock(UBOOL Blit)
 		if (Blit)
 		{
 			SetProgram(PostProcess_Prog);
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 			// ufront (v400): UViewport has no PhysicalSizeX/Y (a UT469 hi-DPI addition). We render to
 			// the plain window surface, so the drawable size is just SizeX/SizeY.
 			static_cast<PostProcessProgram*>(Shaders[PostProcess_Prog])->Draw(RenderColorTexture, Viewport->SizeX, Viewport->SizeY);
@@ -2022,7 +2022,7 @@ void UXOpenGLRenderDevice::Unlock(UBOOL Blit)
 			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
 #if SDLBUILD
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 			// ufront (v400): NSDLViewport owns the window and performs SDL_GL_SwapWindow in its own
 			// present path (UNSDLViewport::Unlock). Don't double-swap here — a second swap would present
 			// an undefined back buffer.
@@ -2138,7 +2138,7 @@ void UXOpenGLRenderDevice::SetGamma(FLOAT GammaCorrection)
 {
 	guard(UXOpenGLRenderDevice::SetGamma);
 
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 	// ufront (v400): the web client's Brightness defaults to 0 (no video-settings UI writes it), which would
 	// crush the gamma to near-black. Substitute the retail default brightness (0.5) so the present matches a
 	// default desktop config. A real brightness value (>0) passes through untouched.
@@ -2147,7 +2147,7 @@ void UXOpenGLRenderDevice::SetGamma(FLOAT GammaCorrection)
 #endif
 	GammaCorrection += 0.1f; // change range from 0.0-0.9 to 0.1 to 1.0
 	FLOAT GammaMult = (GIsEditor ? GammaMultiplierUED : GammaMultiplier);
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 	// ufront (v400): GammaMultiplier/GammaMultiplierUED are CPF_Config floats whose StaticConstructor
 	// default (1.75) is not applied on v400 (they load as 0 from the retail ini), which drives Gamma to 0.
 	// A zero Gamma makes the PostProcess present shader's GammaCorrect() compute pow(color, 1/0)=0 -> a
@@ -2164,7 +2164,7 @@ FLOAT UXOpenGLRenderDevice::GetViewportGamma(UViewport* Viewport) const
 {
 	if (Viewport->IsOrtho())
 		return 1.f;
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 	// ufront (v400): last-resort guard — if SetGamma never ran (Gamma still 0), avoid the black-screen
 	// pow(color, 1/0). With SetGamma's Brightness/GammaMultiplier defaults, Gamma computes to ~1.05
 	// (retail-default look) and passes through here unchanged.
@@ -2338,7 +2338,7 @@ void UXOpenGLRenderDevice::Exit()
 	DistanceFogBuffer.DeleteBuffer();
 
 	#if SDLBUILD
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 		// ufront (v400): we adopted NSDLViewport's context (see CreateOpenGLContext) — it destroys the
 		// context + window itself in CloseWindow. Do NOT delete/unbind it here (double-free / stealing the
 		// viewport's current context). Just drop our references.

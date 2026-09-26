@@ -254,7 +254,7 @@ void UXOpenGLRenderDevice::SetSampler(GLuint Sampler, FTextureInfo& Info, UBOOL 
 static FName UserInterface = FName(TEXT("UserInterface"), FNAME_Intrinsic);
 #endif
 
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 #include "decompress.h" // vendored from GL4ES (Benjamin Dobell / Anteru, MIT) — battle-tested S3TC block decode
 // ufront (WebGL2/ES): decode a full DXT1 mip to tightly-packed WxH RGBA8 using GL4ES's DecompressBlockDXT1.
 // Used only for DXT1 textures whose dimensions are not multiples of 4 (e.g. a 128x2 gradient), which
@@ -344,7 +344,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 	if (!SupportsS3TC && FIsCompressedFormat(Info.Format))
 		UnsupportedTexture = true;
 
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 	// ufront (WebGL2/ES): DXT1 whose base dimensions are not multiples of 4 (e.g. a 128x2 gradient) is
 	// rejected by WebGL2/ANGLE. Decode those to RGBA8 in software (see XOpenGLDecodeDXT1Image). Block-aligned
 	// DXT1 still uploads compressed. Only meaningful on the WebGL profile.
@@ -420,7 +420,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			break;
 			// S3TC -- Ubiquitous Extension.
 		case TEXF_BC1:
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 			if (DecodeDXT1)
 			{
 				// ufront (WebGL2): decode to RGBA8 and upload uncompressed (see the mip loop below). Size for
@@ -642,7 +642,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 
 					// S3TC -- Ubiquitous Extension. Was TEXF_DXTx before
 				case TEXF_BC1:
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 					if (DecodeDXT1)
 					{
 						// ufront (WebGL2): software-decode this non-4-aligned DXT1 mip to RGBA8. CompImageSize
@@ -683,7 +683,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			}
 			else
 			{
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 				// v400 has no appMsgf; just log (this is an editor-only diagnostic).
 				if (GIsEditor)
 					GWarn->Logf(TEXT("Unpacking %s on %s failed due to invalid data."), *FTextureFormatString(Info.Format), Info.Texture->GetFullName());

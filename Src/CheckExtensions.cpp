@@ -291,7 +291,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
 	}
 
     if (!GLExtensionSupported(TEXT("GL_EXT_texture_compression_s3tc"))
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
         // ufront (WebGL2/ES): ANGLE/WebGL exposes S3TC under the WebGL extension name, not the desktop EXT
         // name, so the plain GL_EXT_ check fails and DXT1 textures fall back to a placeholder. Accept the
         // WebGL name(s) too. The DXT format tokens (0x83F1..) are identical, and emscripten enables all

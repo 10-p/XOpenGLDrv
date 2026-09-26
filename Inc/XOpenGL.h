@@ -55,7 +55,7 @@
 
 #include "XOpenGLTemplate.h" //thanks han!
 
-#if ENGINE_VERSION==436 || ENGINE_VERSION==430 || ENGINE_VERSION==400
+#if ENGINE_VERSION==436 || ENGINE_VERSION==430 || XOGL_UE1_V4XX
 #define clockFast(Timer)   {Timer -= appCycles();}
 #define unclockFast(Timer) {Timer += appCycles()-34;}
 #elif UNREAL_OLDUNREAL
@@ -422,7 +422,7 @@ public:
 
 	FShaderWriterX()
 	{
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 		// ufront (v400): TArray has no Reserve/AddNoCheck. Empty(Slack) reserves; Add() appends one.
 		Data.Empty(1000);
 		Data.Add();
@@ -497,7 +497,7 @@ public:
 
 	void Reset()
 	{
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 		Data.Empty();
 		Data.Add();
 #else
@@ -520,7 +520,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 {
 #if UNREAL_OLDUNREAL
 	DECLARE_CLASS(UXOpenGLRenderDevice, URenderDevice, CLASS_Config, XOpenGLDrv)
-#elif ENGINE_VERSION==430
+#elif ENGINE_VERSION==430 || XOGL_HP2 // hp2: 433 has the strict 4-arg DECLARE_CLASS(TClass,TSuper,Flags,TPackage)
 	DECLARE_CLASS(UXOpenGLRenderDevice, URenderDevice, CLASS_Config, XOpenGLDrv)
 #elif UNREAL_TOURNAMENT_OLDUNREAL
 	DECLARE_CLASS(UXOpenGLRenderDevice, URenderDeviceOldUnreal469, CLASS_Config, XOpenGLDrv)
@@ -664,7 +664,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	//
 	FString AllExtensions;
 	INT		MaxClippingPlanes;
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 	// ufront (v400): MaxTextureSize is normally provided by the URenderDeviceOldUnreal469 base class,
 	// which vanilla v400 does not have (we inherit plain URenderDevice). Declare it here.
 	INT		MaxTextureSize;

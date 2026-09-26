@@ -484,7 +484,7 @@ static const TCHAR* ShaderTypeString(GLuint ShaderType)
 
 static void DumpShader(const char* Source, bool AddLineNumbers)
 {
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 	// ufront (v400): v400's TArray<FString>::AddItem assigns onto unconstructed element memory, whose
 	// garbage FString.Data pointer then gets realloc()'d -> crash. Log each line directly instead of
 	// accumulating into a TArray<FString>.
@@ -562,7 +562,7 @@ bool UXOpenGLRenderDevice::ShaderProgram::CompileShaderFunction(GLuint ShaderFun
 		{
 			GLchar* compiler_log = new GLchar[blen + 1];
 			glGetShaderInfoLog(ShaderFunctionObject, blen, &slen, compiler_log);
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 			// v400 TCHAR is narrow (char): use %s and pass the ANSI log directly (%s would print empty).
 			debugf(TEXT("XOpenGL: ErrorLog compiling %s: %s"), ShaderName, compiler_log);
 #else
@@ -906,7 +906,7 @@ void UXOpenGLRenderDevice::ShaderCompilationOptions::SetOptionsForRendererConfig
 FString UXOpenGLRenderDevice::ShaderCompilationOptions::GetStringHelper(void (*AddOptionFunc)(FString&, const TCHAR*, bool)) const
 {
     FString Result;
-#if ENGINE_VERSION==400
+#if XOGL_UE1_V4XX
 // ufront (v400): TCHAR is narrow (char) here, so a wide `L"..."` literal won't convert to const TCHAR*.
 // TEXT() resolves to the correct width on every target.
 #define ADD_OPTION(x) \
