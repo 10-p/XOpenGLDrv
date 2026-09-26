@@ -103,8 +103,18 @@ void UXOpenGLRenderDevice::Draw3DLine( FSceneNode* Frame, FPlane Color, DWORD Li
 	
 	Color.W = 1.f; //Unfortunately this is usually set to 0.
 
+#if XOGL_HP2
+	// hp2: 433 adds LINE_PreTransformed (points already in camera space); the base URenderDevice::Draw3DLine
+	// skips the Frame->Coords transform for it (Engine/Src/UnCamera.cpp). No HP2 caller passes it today.
+	if (!(LineFlags & LINE_PreTransformed))
+	{
+		P1 = P1.TransformPointBy(Frame->Coords);
+		P2 = P2.TransformPointBy(Frame->Coords);
+	}
+#else
 	P1 = P1.TransformPointBy(Frame->Coords);
 	P2 = P2.TransformPointBy(Frame->Coords);
+#endif
 
 	if (Frame->Viewport->IsOrtho())
 	{
