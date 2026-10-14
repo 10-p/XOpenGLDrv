@@ -2256,10 +2256,15 @@ void UXOpenGLRenderDevice::ReadPixels(FColor* Pixels)
 
 	MakeCurrent();
 
-	if (RenderFBO)
-		glBindFramebuffer(GL_FRAMEBUFFER, RenderFBO);
+	// ufront 2.91: with UseAA the frame is drawn into the MULTISAMPLED RenderFBO, which GLES 3 / WebGL 2 refuse to
+	// read (glReadPixels on a multisampled read framebuffer is INVALID_OPERATION), and Unlock discards it after the
+	// resolve anyway. The resolved frame is in RenderResolvedFBO. Measured on the web (engine-ut99): SHOT with UseAA=True
+	// wrote an all-black BMP, with UseAA=False a real one; HP2's save thumbnails go through here too.
+	const GLuint ReadFBO = (UseAA && RenderResolvedFBO) ? RenderResolvedFBO : RenderFBO;
+	if (ReadFBO)
+		glBindFramebuffer(GL_FRAMEBUFFER, ReadFBO);
 	glReadPixels(0, 0, SizeX, SizeY, GL_RGBA, GL_UNSIGNED_BYTE, Pixels);
-	if (RenderFBO)
+	if (ReadFBO)
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	
 	for (INT i = 0; i<SizeY / 2; i++)
