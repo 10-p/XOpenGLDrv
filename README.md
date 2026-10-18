@@ -14,6 +14,52 @@ their patches. For example:
   downloaded
   [here](https://github.com/OldUnreal/UnrealTournamentPatches/releases)
 
+# This Fork
+
+[10-p/XOpenGLDrv](https://github.com/10-p/XOpenGLDrv) carries the changes that let the Unreal-on-the-web
+engines use XOpenGLDrv as their WebGL 2 and desktop OpenGL 3.3 render device. It is based on OldUnreal's
+`master` at "Fix wrong code guards." (`03f7ca2`). The engines fetch a branch by name and build it with
+`SDLBUILD=1 SDL2BUILD=1`.
+
+| Branch | Engine | Built by |
+|---|---|---|
+| `ut99-v400-compat` | Unreal Tournament v400 (`ENGINE_VERSION` 400) | engine-ut99, engine-ut99-436-compat |
+| `hp2-v433-compat` | the same, plus Harry Potter and the Chamber of Secrets (UE1 build 433) | engine-hp2, engine-hp2-retail |
+
+Both branches add:
+
+* **UE1 v400 support**: builds against the v400 headers, which lack the OldUnreal 469 extensions (the 469
+  blend flags are inert, the 469 `TEXF_*` names map onto v400's formats, and the missing Core helpers,
+  `TArray` calls and `UViewport` fields have v400 equivalents).
+* **WebGL 2 render profile**: `OpenGLVersion=ES_WEBGL` (also selectable on desktop) emits `#version 300 es`
+  shaders with plain varyings instead of interface blocks; the web build always uses it.
+* **The windowing driver's GL context**: on v400 the driver uses the context NSDLDrv made current and
+  leaves creation, buffer swaps and deletion to the viewport.
+* **Threaded web build**: with the engine on a worker, the context, make-current and the GL entry points
+  come from Emscripten instead of SDL.
+* **Extension detection on the web**: extensions are looked up in the context's own list, also under their
+  WebGL names (S3TC, anisotropic filtering).
+* **Texture uploads on GLES / WebGL 2**: BGRA textures upload as RGBA with R and B swapped, light and fog
+  maps are swizzled in the shader, DXT1 uploads compressed on v400, and DXT1 mips that are not
+  block-aligned are decoded to RGBA8 on WebGL.
+* **Strict-driver robustness** (AMD/Mesa, ANGLE): uniform blocks match their std140 size, an out-of-range
+  `GL_MAX_UNIFORM_BLOCK_SIZE` is clamped, parameter arrays have at least one element, an unused fog block
+  is not declared, and ES shaders use `highp`.
+* **`SDLBUILD` selects the SDL path**: MinGW Windows builds take the SDL window and context path like
+  Linux and the web; builds without `SDLBUILD` (upstream MSVC) keep the driver's own WGL window.
+
+`hp2-v433-compat` also adds:
+
+* **UE1 v4xx / HP2 gates**: `XOGL_UE1_V4XX` (v400 or 433) carries every v400 adaptation, `XOGL_HP2` the
+  433 interface; on 433 the driver includes `Render.h` and uses the 4-argument `DECLARE_CLASS`.
+* **Straight alpha on 433**: HP2's alpha-blend modes map onto a driver-internal poly flag, so fading actors
+  and Lumos surfaces use the straight-alpha blend.
+* **HP2 433 render-device interface**: the 5-argument `DrawComplexSurface` (Lumos surfaces at their
+  opacity), `MaxVertices()`, `DrawTriangles` for indexed lists, fans and plain lists, and HP2's tile
+  blending and `LINE_PreTransformed` lines.
+
+The DXT decoder in `Src/decompress.cpp` and `Inc/decompress.h` comes from gl4es (MIT); see LICENSE.md.
+
 # Build Instructions
 
 ## Prerequisites
