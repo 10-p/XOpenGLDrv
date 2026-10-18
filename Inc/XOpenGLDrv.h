@@ -24,13 +24,12 @@ using std::isfinite;
 #endif
 #include "Engine.h"
 
-// hp2: Harry Potter and the Chamber of Secrets (Unreal Engine 1 build 433) port. Two derived gates:
-//  * XOGL_UE1_V4XX — "vanilla UE1 v400-family engine without OldUnreal extensions" (UT99 v400 and HP2
-//    433): Core/TCHAR/TArray shims, SDL/WebGL context adoption, gamma defaults. Every former
-//    `ENGINE_VERSION==400` adaptation that 433 needs too is keyed on it.
-//  * XOGL_HP2 — the 433 render-device face (5-arg DrawComplexSurface, MaxVertices, DrawTriangles) and
-//    HP2's blend semantics (Lumos cAlpha, vertex alpha, PF_Highlighted|PF_Translucent straight alpha).
-// Both are 0 on every other engine, so those builds are untouched.
+// Engine gates, both 0 on every other engine:
+//  * XOGL_UE1_V4XX: a UE1 v400-family engine without the OldUnreal extensions (UT99 v400, HP2 433):
+//    Core/TCHAR/TArray shims, the windowing driver's GL context, gamma defaults.
+//  * XOGL_HP2: Harry Potter and the Chamber of Secrets (UE1 build 433): its render-device interface
+//    (5-argument DrawComplexSurface, MaxVertices, DrawTriangles) and its blend semantics (Lumos
+//    cAlpha, vertex alpha, PF_Highlighted|PF_Translucent straight alpha).
 #if ENGINE_VERSION==400 || ENGINE_VERSION==433
 #define XOGL_UE1_V4XX 1
 #else
@@ -50,28 +49,23 @@ using std::isfinite;
 #include "Render.h"
 #elif ENGINE_VERSION==1100
 #include "RenderPrivate.h"
-// ufront: vanilla UT99 v400 port (engine-ut99). v400 ships no separate public "Render.h"; the
-// software-renderer internals (FSceneNode/FSurfaceInfo/FSavedPoly/FTransTexture/etc.) live in
-// RenderPrivate.h — exactly as the reference NOpenGLESDrv includes it. Gated for a future v200 port.
+// UE1 v400 has no public Render.h; FSceneNode, FSurfaceInfo, FSavedPoly, FTransTexture and the other
+// renderer types are in RenderPrivate.h.
 #elif ENGINE_VERSION==400
 #include "RenderPrivate.h"
-// hp2: 433 has no RenderPrivate.h; its Render private header is Render/Inc/Render.h (which also pulls
-// in Core's UnStat.h). HP2's UnRender.h is include-guarded, so the trailing include below is a no-op.
+// 433 has no RenderPrivate.h; its renderer header is Render.h (which also includes Core's UnStat.h).
+// 433's UnRender.h is include-guarded, so the include below is harmless.
 #elif XOGL_HP2
 #include "Render.h"
 #endif
-// ufront (v400): RenderPrivate.h already pulls in the guard-less UnRender.h, so including it again
-// here would redefine URenderDevice/FSceneNode/etc. Skip the trailing include for v400 (the reference
-// NOpenGLESDrv includes RenderPrivate.h only, for exactly this reason).
+// v400's RenderPrivate.h already includes UnRender.h, which has no include guard.
 #if ENGINE_VERSION!=400
 #include "UnRender.h"
 #endif
 
-// ufront: vanilla UT99 v400 compatibility shims — driver-local, gated for a future v200 port. v400
-// Core lacks the Windows-style BOOL/TRUE/FALSE the fork uses pervasively, has no PF_None, and no
-// NAME_DevGraphics log category. Define them here (after Engine.h/RenderPrivate.h so UBOOL, the PF_
-// flags, and the EName enum are already visible). We deliberately do NOT modify the engine.
-// hp2: HP2 433 Core/Engine lack the same four names, so the shims apply there too.
+// v400 Core has no BOOL/TRUE/FALSE, no PF_None and no NAME_DevGraphics log category. They are defined
+// here, after Engine.h and RenderPrivate.h, so UBOOL, the PF_ flags and EName are visible.
+// HP2 433 lacks the same names.
 #if XOGL_UE1_V4XX
 typedef UBOOL BOOL;
 #ifndef TRUE

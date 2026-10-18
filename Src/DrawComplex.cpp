@@ -46,10 +46,9 @@ static void SetTextureHelper
 -----------------------------------------------------------------------------*/
 
 #if XOGL_HP2
-// hp2: the 433 face (Engine/Inc/UnRenDev.h). Render passes the flags to use as an ARGUMENT: for Lumos
-// surfaces it is a modified copy of Surface.PolyFlags (PF_Occlude added/removed, Render/Src/UnRender.cpp),
-// so Surface.PolyFlags must not be read here. cAlpha is TRANSPARENCY (255 = gone, 0 = opaque) and only
-// means something on a Lumos surface; every other surface is passed 255 and ignores it.
+// 433: Render passes the flags to draw with; for Lumos surfaces they are a modified copy of
+// Surface.PolyFlags (PF_Occlude added or removed), so Surface.PolyFlags is not read here. cAlpha is the
+// transparency (255 = invisible, 0 = opaque) and only applies to Lumos surfaces.
 void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& Surface, FSurfaceFacet& Facet, DWORD InPolyFlags, BYTE cAlpha)
 #else
 void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& Surface, FSurfaceFacet& Facet)
@@ -70,22 +69,20 @@ void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& S
 	// Gather options
 	DWORD DrawFlags = ShaderDrawFlags::DF_None;
 #if XOGL_HP2
-	DWORD SurfPolyFlags   = InPolyFlags & ~PF_XOGL_AlphaBlend; // never trust content with the synthetic bit
+	DWORD SurfPolyFlags   = InPolyFlags & ~PF_XOGL_AlphaBlend; // the internal bit never comes from content
 	FLOAT LumosOpacity    = 1.f;
 	DWORD LumosMaskedFlag = 0;
-	// Lumos surface: retail D3D7 tests `PolyFlags & PF_LumosAffected` (= PF_HighShadowDetail|PF_Modulated,
-	// ANY bit) and blends INVSRCALPHA/SRCALPHA with a = texA*cAlpha/255 (D3DDrv/Src/Direct3D7.cpp). That
-	// `&` also catches every plain PF_Modulated poly (it would make modulated BSP surfaces opaque), so a
-	// surface is Lumos here only when it carries PF_HighShadowDetail AND a blend bit. Same result as
-	// D3D7 for real Lumos surfaces: straight alpha with opacity (255-cAlpha)/255; depth writes as the
-	// PF_Occlude Render decided; the base x lightmap texturing stays the normal one, so the blend bits
-	// and the Lumos markers (PF_Gouraud = Appear, PF_DirtyShadows = AlwaysOn) are stripped.
+	// A Lumos surface carries PF_HighShadowDetail and a blend bit (HP2's D3D7 driver tests for either bit
+	// of PF_LumosAffected, which also catches every plain PF_Modulated surface). It draws as straight alpha
+	// at opacity (255-cAlpha)/255 with the depth writes Render chose; the blend bits and the Lumos markers
+	// (PF_Gouraud = Appear, PF_DirtyShadows = AlwaysOn) are stripped, so the base x lightmap texturing is
+	// the normal one.
 	if (!GIsEditor && (SurfPolyFlags & PF_HighShadowDetail) && (SurfPolyFlags & (PF_Modulated | PF_Translucent)))
 	{
 		LumosOpacity  = (FLOAT)(255 - cAlpha) / 255.f;
 		// A masked Lumos surface keeps its masked texture upload (palette index 0 -> alpha 0) but is drawn
-		// as plain alpha blend: the masked shader path would test alpha AFTER the opacity was multiplied in
-		// and drop the whole surface below 50% opacity. Index-0 texels still vanish (alpha 0 is discarded).
+		// as plain alpha blend: the masked shader path tests alpha after the opacity is applied and would drop
+		// the whole surface below 50% opacity. Index-0 texels still vanish (alpha 0).
 		LumosMaskedFlag = SurfPolyFlags & PF_Masked;
 		SurfPolyFlags = (SurfPolyFlags & ~(PF_Modulated | PF_Translucent | PF_Masked | PF_HighShadowDetail | PF_Gouraud | PF_DirtyShadows)) | PF_XOGL_AlphaBlend;
 	}
@@ -139,9 +136,9 @@ void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& S
 	if (!Surface.Texture->Texture)
 		DrawCallParams->DiffuseInfo = glm::vec4(1.f, 0.f, 0.f, 1.f);
 #if XOGL_HP2
-	// Lumos opacity rides on the diffuse alpha factor: the complex fragment shader does
-	// `Color.a *= DiffuseInfo.z` (DrawComplex_GLSL.cpp) and forces the lightmap alpha to 1, so the factor
-	// reaches FragColor. The fallback DiffuseInfo above has z = 0, hence the explicit 1.
+	// Lumos opacity rides on the diffuse alpha factor: the complex fragment shader multiplies Color.a by
+	// DiffuseInfo.z and forces the lightmap alpha to 1. The fallback DiffuseInfo above has z = 0, hence
+	// the explicit 1.
 	if (SurfPolyFlags & PF_XOGL_AlphaBlend)
 		DrawCallParams->DiffuseInfo.z = (Surface.Texture->Texture ? DrawCallParams->DiffuseInfo.z : 1.f) * LumosOpacity;
 #endif

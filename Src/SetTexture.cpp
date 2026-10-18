@@ -255,12 +255,10 @@ static FName UserInterface = FName(TEXT("UserInterface"), FNAME_Intrinsic);
 #endif
 
 #if XOGL_UE1_V4XX
-#include "decompress.h" // vendored from GL4ES (Benjamin Dobell / Anteru, MIT) — battle-tested S3TC block decode
-// ufront (WebGL2/ES): decode a full DXT1 mip to tightly-packed WxH RGBA8 using GL4ES's DecompressBlockDXT1.
-// Used only for DXT1 textures whose dimensions are not multiples of 4 (e.g. a 128x2 gradient), which
-// WebGL2/ANGLE refuses via glCompressedTexImage2D ("invalid compressed image size"); block-aligned DXT1
-// still uploads compressed. The block decoder writes full 4x4 blocks with no edge clip, so @Dst must hold
-// the block-padded image (((W+3)&~3) * ((H+3)&~3) DWORDs); we then compact it to a tight W-stride image.
+#include "decompress.h" // DXT block decoder from gl4es (Benjamin Dobell, Matthäus G. Chajdas; MIT)
+// Decodes a DXT1 mip to tightly packed W x H RGBA8, for DXT1 sizes that are not multiples of 4, which
+// WebGL rejects in glCompressedTexImage2D. The decoder writes whole 4x4 blocks, so Dst holds the padded
+// image (((W+3)&~3) * ((H+3)&~3) DWORDs) before the rows are compacted to a W stride.
 static void XOpenGLDecodeDXT1Image(const BYTE* Src, INT W, INT H, DWORD* Dst)
 {
 	const INT PW = (W + 3) & ~3; // block-padded width
@@ -345,9 +343,8 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 		UnsupportedTexture = true;
 
 #if XOGL_UE1_V4XX
-	// ufront (WebGL2/ES): DXT1 whose base dimensions are not multiples of 4 (e.g. a 128x2 gradient) is
-	// rejected by WebGL2/ANGLE. Decode those to RGBA8 in software (see XOpenGLDecodeDXT1Image). Block-aligned
-	// DXT1 still uploads compressed. Only meaningful on the WebGL profile.
+	// On WebGL, DXT1 whose base size is not a multiple of 4 is decoded to RGBA8 (XOpenGLDecodeDXT1Image);
+	// block-aligned DXT1 uploads compressed.
 	const bool DecodeDXT1 = IsWebGL() && !UnsupportedTexture && (BYTE)Info.Format == TEXF_BC1 &&
 		((Info.Mips[Bind->BaseMip]->USize & 3) || (Info.Mips[Bind->BaseMip]->VSize & 3));
 #else
@@ -371,9 +368,9 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			MinComposeSize = Info.Mips[Bind->BaseMip]->USize * Info.Mips[Bind->BaseMip]->VSize * 4;
 			InternalFormat = GL_RGBA8;
 			if (OpenGLVersion == GL_Core)
-			  SourceFormat = GL_BGRA; // desktop: upload BGRA data as-is
+			  SourceFormat = GL_BGRA; // desktop GL uploads the BGRA data as is
 			else
-			  SourceFormat = GL_RGBA; // ES/WebGL: no GL_BGRA source; the unpack loop swaps R<->B into Compose
+			  SourceFormat = GL_RGBA; // ES has no GL_BGRA source format; the ES shaders swizzle light and fog maps
 			break;
 #if ENGINE_VERSION==227
 			// RGB10A2_LM. Used for HDLightmaps.
@@ -403,7 +400,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 		case TEXF_BGRA8:
 			InternalFormat = UnpackSRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
 			MinComposeSize = Info.Mips[Bind->BaseMip]->USize * Info.Mips[Bind->BaseMip]->VSize * 4;
-			SourceFormat = (OpenGLVersion == GL_Core) ? GL_BGRA : GL_RGBA; // ufront (2.12): WebGL2 has NO GL_BGRA source ("texImage2D: invalid format" -> BLACK surface); ES swaps B<->R below + uploads GL_RGBA
+			SourceFormat = (OpenGLVersion == GL_Core) ? GL_BGRA : GL_RGBA; // ES has no GL_BGRA source format: the unpack loop swaps B and R
 			break;
 
 #if ENGINE_VERSION==227 && !defined(__LINUX_ARM__)
@@ -423,8 +420,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 #if XOGL_UE1_V4XX
 			if (DecodeDXT1)
 			{
-				// ufront (WebGL2): decode to RGBA8 and upload uncompressed (see the mip loop below). Size for
-				// the block-padded decode buffer (the block decoder writes full 4x4 blocks).
+				// Decoded to RGBA8 and uploaded uncompressed; Compose holds the block-padded decode.
 				MinComposeSize = ((Info.Mips[Bind->BaseMip]->USize + 3) & ~3) * ((Info.Mips[Bind->BaseMip]->VSize + 3) & ~3) * 4;
 				InternalFormat = UnpackSRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
 				SourceFormat = GL_RGBA;
@@ -596,7 +592,7 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 						for (INT i = 0; i < Count; i++)
 						{
 							FColor Color = ((FColor*)Mip->DataPtr)[i];
-							/* ufront (2.12): NO R<->B swap. Lightmaps are in engine FColor order -- the same order the P8/palette path uploads RAW as GL_RGBA with correct colors. The old Exchange(R,B) made lightmaps R/B-swapped RELATIVE to textures -> "reds look blue" (GPU-independent). */
+							/* no R<->B swap: the ES complex shader reads light and fog maps with a .bgr swizzle */
 							*Ptr++ = *(DWORD*)&Color;
 						}
 					}
@@ -620,9 +616,8 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 					ImgSrc = Mip->DataPtr;
 					break;
 
-				// TEXF_BGRA8 -- true BGRA package textures. ufront (2.12): on ES/WebGL there is no GL_BGRA
-				// source format (texImage2D "invalid format" -> the texture fails -> BLACK surface), so swap
-				// B<->R into Compose and upload as GL_RGBA. Desktop uploads raw via GL_BGRA.
+				// TEXF_BGRA8: ES has no GL_BGRA source format, so B and R are swapped into Compose and the
+				// data is uploaded as GL_RGBA; desktop GL uploads it as GL_BGRA.
 				case TEXF_BGRA8:
 					if (OpenGLVersion == GL_Core)
 						ImgSrc = Mip->DataPtr;
@@ -645,9 +640,8 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 #if XOGL_UE1_V4XX
 					if (DecodeDXT1)
 					{
-						// ufront (WebGL2): software-decode this non-4-aligned DXT1 mip to RGBA8. CompImageSize
-						// stays 0 so the uncompressed glTexImage2D path (with the RGBA8 InternalFormat set in
-						// the format switch) is used.
+						// Decode this mip to RGBA8; CompImageSize stays 0, so the uncompressed upload path (with
+						// the RGBA8 InternalFormat from the format switch) is used.
 						XOpenGLDecodeDXT1Image(Mip->DataPtr, USize, VSize, (DWORD*)Compose);
 						ImgSrc = Compose;
 						break;
@@ -666,10 +660,8 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 				case TEXF_BC7:
 					CompImageSize = FTextureBytes(Info.Format, USize, VSize);
 #else
-					// ufront (v400): TEXF_BC1 == TEXF_DXT1 must reach this compressed-upload path on v400
-					// too (it was trapped inside the 227/OLDUNREAL #if -> fell through to the "Unpacking
-					// unknown format" appErrorf once S3TC was enabled on WebGL2). FTextureBytes is
-					// OLDUNREAL-only; v400 only lands here for DXT1, which is 8 bytes per 4x4 block.
+					// FTextureBytes is OldUnreal-only; v400 reaches this case only for DXT1 (TEXF_BC1), which
+					// is 8 bytes per 4x4 block.
 					CompImageSize = Max(1, (USize + 3) / 4) * Max(1, (VSize + 3) / 4) * 8;
 #endif
 					ImgSrc = Mip->DataPtr;
@@ -945,9 +937,8 @@ DWORD UXOpenGLRenderDevice::GetPolyFlagsAndDrawFlags(DWORD PolyFlags, DWORD& Dra
 }
 
 #if XOGL_HP2
-// hp2: 433 blend semantics that UT v400/469 never had (retail D3D7 DrawTile/AdjustPolyFlags/SetBlending,
-// D3DDrv/Src/Direct3D7.cpp; SoftDrv DrawPoly.cpp). Called on entry by DrawTriangles and DrawTile, before
-// GetPolyFlagsAndDrawFlags/SetBlend see the flags.
+// HP2's blend semantics, as in its D3D7 driver (DrawTile, AdjustPolyFlags, SetBlending) and SoftDrv.
+// DrawTriangles and DrawTile call it on entry, before GetPolyFlagsAndDrawFlags and SetBlend.
 DWORD UXOpenGLRenderDevice::HP2AdjustPolyFlags(DWORD PolyFlags, UBOOL IsTile, FTextureInfo* Info)
 {
 	// The synthetic alpha-blend bit is driver-internal; content never sets it.
@@ -960,7 +951,7 @@ DWORD UXOpenGLRenderDevice::HP2AdjustPolyFlags(DWORD PolyFlags, UBOOL IsTile, FT
 		PolyFlags |= PF_Highlighted;
 
 	// PF_Highlighted|PF_Translucent = straight alpha ("post-multiplied source", D3D7 SRCALPHA/INVSRCALPHA):
-	// fading actors (AActor::Opacity < 1, alpha in Light.W, colour NOT premultiplied). Must be decided
+	// fading actors (AActor::Opacity < 1, alpha in Light.W, colour not premultiplied). Must be decided
 	// before SetBlend's "PF_Translucent wins" order, which would draw them as additive ghosts. With
 	// PF_Masked, follow SoftDrv: drop the pair and draw masked.
 	if ((PolyFlags & (PF_Highlighted | PF_Translucent)) == (PF_Highlighted | PF_Translucent))
@@ -975,7 +966,7 @@ DWORD UXOpenGLRenderDevice::HP2AdjustPolyFlags(DWORD PolyFlags, UBOOL IsTile, FT
 	if ((PolyFlags & (PF_Modulated | PF_RenderFog)) == (PF_Modulated | PF_RenderFog))
 		PolyFlags &= ~PF_RenderFog;
 
-	// Not reproduced on purpose: D3D7 routes every poly with ANY PF_LumosAffected bit (so every plain
+	// Not reproduced on purpose: D3D7 routes every poly with any PF_LumosAffected bit (so every plain
 	// PF_Modulated one, e.g. all actor blob shadows) through the Lumos blend, where it is invisible.
 	// PF_HighShadowDetail on a mesh is not a Lumos marker either: Render applies Lumos to BSP surfaces only.
 	return PolyFlags;

@@ -17,9 +17,8 @@
 
 
 #ifdef __EMSCRIPTEN__
-// ufront: exact-token search of the space-separated AllExtensions list that XOpenGL::SetRes builds with
-// glGetStringi. AllExtensions terminates every token with a space, so prepending one makes each token
-// bounded on both sides — "EXT_sRGB" then cannot match inside "GL_EXT_sRGB" by accident.
+// Exact-token search of AllExtensions, which CreateOpenGLContext builds with a space after every name;
+// the leading space keeps "EXT_sRGB" from matching inside "GL_EXT_sRGB".
 static UBOOL XOpenGLHasExtension(const FString& AllExtensions, const FString& Name)
 {
 	const FString Haystack = FString(TEXT(" ")) + AllExtensions;
@@ -31,15 +30,9 @@ static UBOOL XOpenGLHasExtension(const FString& AllExtensions, const FString& Na
 UBOOL UXOpenGLRenderDevice::GLExtensionSupported(FString ExtensionName)
 {
 #ifdef __EMSCRIPTEN__
-	// ufront: SDL owns no GL context on the web — the viewport creates it with
-	// emscripten_webgl_create_context and this driver adopts it (see CreateOpenGLContext, ufront 2.13.2).
-	// SDL_GL_ExtensionSupported therefore resolves against nothing and reports EVERY extension missing,
-	// which silently turned SupportsS3TC off and made every DXT texture render as the chequerboard
-	// placeholder. Ask the context we actually render into instead, via the list SetRes already built.
-	//
-	// WebGL also spells extensions WITHOUT the "GL_" prefix (WEBGL_compressed_texture_s3tc,
-	// EXT_texture_filter_anisotropic), so a caller asking for the desktop "GL_"-prefixed name is
-	// retried de-prefixed rather than being told the extension is absent.
+	// On the web the WebGL context is not SDL's, so the context's own extension list is searched. WebGL
+	// names extensions without the "GL_" prefix (WEBGL_compressed_texture_s3tc,
+	// EXT_texture_filter_anisotropic), so a "GL_" name is retried without it.
 	if (XOpenGLHasExtension(AllExtensions, ExtensionName))
 		return TRUE;
 	if (ExtensionName.Left(3) == FString(TEXT("GL_")))
@@ -292,10 +285,8 @@ void UXOpenGLRenderDevice::CheckExtensions()
 
     if (!GLExtensionSupported(TEXT("GL_EXT_texture_compression_s3tc"))
 #if XOGL_UE1_V4XX
-        // ufront (WebGL2/ES): ANGLE/WebGL exposes S3TC under the WebGL extension name, not the desktop EXT
-        // name, so the plain GL_EXT_ check fails and DXT1 textures fall back to a placeholder. Accept the
-        // WebGL name(s) too. The DXT format tokens (0x83F1..) are identical, and emscripten enables all
-        // reported extensions when the extension string is queried, so glCompressedTexImage2D just works.
+        // WebGL exposes S3TC as WEBGL_compressed_texture_s3tc. The DXT format tokens are the same, and
+        // Emscripten enables every extension it reports, so the compressed upload path works unchanged.
         && !GLExtensionSupported(TEXT("WEBGL_compressed_texture_s3tc"))
         && !GLExtensionSupported(TEXT("GL_WEBGL_compressed_texture_s3tc"))
 #endif
@@ -379,13 +370,9 @@ void UXOpenGLRenderDevice::CheckExtensions()
 
     MaxUniformBlockSize = 0;
     glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &MaxUniformBlockSize);
-    // ufront (2.12): AMD/Mesa drivers report GARBAGE for GL_MAX_UNIFORM_BLOCK_SIZE -- some return 572657868
-    // (~546 MB), and an AMD RX 6900 XT via Firefox (native Mesa) returns a value that reads as -4.
-    // GetMaximumUniformBufferSize() DIVIDES by this to size the per-draw UBO, so a bogus value yields a
-    // 0-element (or overflowing) uniform buffer -> every scene drawArraysInstanced is rejected by WebGL2
-    // ("Buffer for uniform block is smaller than UNIFORM_BLOCK_DATA_SIZE") -> BLACK screen. NVIDIA reports a
-    // sane 65536 and tolerates the rest, which is why this only bit AMD. The GL/WebGL2 spec GUARANTEES this
-    // is >= 16384; clamp any out-of-range value to a safe, universally-supported 65536.
+    // Some AMD/Mesa drivers report an out-of-range GL_MAX_UNIFORM_BLOCK_SIZE (GL guarantees at least
+    // 16384). GetMaximumUniformBufferSize divides by it to size the per-draw buffer, so an implausible
+    // value is clamped to 65536.
     if (MaxUniformBlockSize < 16384 || MaxUniformBlockSize > (16 * 1024 * 1024))
     {
         debugf(NAME_Warning, TEXT("XOpenGL: driver reported bogus GL_MAX_UNIFORM_BLOCK_SIZE %i; clamping to 65536 (AMD/Mesa driver bug)"), MaxUniformBlockSize);

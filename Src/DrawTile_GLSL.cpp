@@ -43,9 +43,8 @@ static const char* InterfaceBlockData = R"(
 void UXOpenGLRenderDevice::DrawTileESProgram::BuildVertexShader(GLuint ShaderType, UXOpenGLRenderDevice* GL, FShaderWriterX& Out)
 {
 	Out << R"(
-// ufront: ES_WEBGL (WebGL2 == GLES3.0) has no stage interface blocks (out/in VertexData{} needs
-// GL_OES_shader_io_blocks / ES3.1), so it emits a plain varying. The desktop ES (3.1) profile keeps the
-// upstream io-block path unchanged. The fragment only needs the tile TexCoords (EyeSpacePos is unused).
+// ES_WEBGL (GLES 3.0, no interface blocks between stages) passes the tile TexCoords as a plain varying;
+// the fragment shader does not use EyeSpacePos.
 #if OPT_GLES_WEBGL
 out vec4 gTileTexCoords;
 #else

@@ -33,7 +33,7 @@ void UXOpenGLRenderDevice::DrawTile(FSceneNode* Frame, FTextureInfo& Info, FLOAT
 	auto ShaderES   = dynamic_cast<DrawTileESProgram*>  (Shaders[Tile_Prog]);
 	
 #if XOGL_HP2
-	// hp2: alpha-palette tiles -> PF_Highlighted, PF_Highlighted|PF_Translucent -> straight alpha (433).
+	// Alpha-palette tiles blend premultiplied, PF_Highlighted|PF_Translucent tiles straight.
 	PolyFlags = HP2AdjustPolyFlags(PolyFlags, TRUE, &Info);
 #endif
 	DWORD DrawFlags = ShaderDrawFlags::DF_None;

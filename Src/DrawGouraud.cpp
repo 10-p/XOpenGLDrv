@@ -43,9 +43,8 @@ static void BufferVert(UXOpenGLRenderDevice::DrawGouraudVertex* Vert, FTransText
 }
 
 #if XOGL_HP2
-// hp2: 433 particles never write FTransTexture::Normal (Render/Src/UnParticleRn.cpp SetTrans/SetTrans2D),
-// so an indexed DrawTriangles batch can carry garbage normals. Only HW lighting and bump mapping read
-// them; otherwise feed zeros so nothing downstream can normalize() garbage into NaNs.
+// 433 particles leave FTransTexture::Normal unset, so a DrawTriangles batch can carry garbage normals.
+// Only HW lighting and bump mapping read them; otherwise zeros are passed, so no NaNs reach the shader.
 static void BufferVertHP2(UXOpenGLRenderDevice::DrawGouraudVertex* Vert, FTransTexture* P, glm::uint DrawID, UBOOL UseNormals)
 {
 	BufferVert(Vert, P, DrawID);
@@ -85,7 +84,7 @@ DWORD UXOpenGLRenderDevice::PrepareGouraudCall(FSceneNode* Frame, FTextureInfo& 
 	DWORD DrawFlags = ShaderDrawFlags::DF_None;
 	DWORD NextPolyFlags = GetPolyFlagsAndDrawFlags(PolyFlags, DrawFlags, FALSE);
 #if XOGL_UE1_V4XX
-	// ufront (v400): no GUglyHackFlags / HACKFLAGS_NoNearZ (a UT469 addition). Vanilla never sets it.
+	// v400 has no GUglyHackFlags / HACKFLAGS_NoNearZ.
 	UBOOL NoNearZ = FALSE;
 #else
 	UBOOL NoNearZ = (GUglyHackFlags & HACKFLAGS_NoNearZ) == HACKFLAGS_NoNearZ;
@@ -181,8 +180,8 @@ void UXOpenGLRenderDevice::FinishGouraudCall(FTextureInfo& Info, DWORD DrawFlags
 -----------------------------------------------------------------------------*/
 
 #if XOGL_HP2
-// hp2: on 433 this is DrawTriangles' fan path (PolyFlags already went through HP2AdjustPolyFlags). The
-// driver must not override DrawGouraudPolygon itself — the base class forwards it to DrawTriangles.
+// On 433 this is DrawTriangles' fan path (PolyFlags already went through HP2AdjustPolyFlags); the
+// driver does not override DrawGouraudPolygon, which the base class forwards to DrawTriangles.
 void UXOpenGLRenderDevice::DrawGouraudFan(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, DWORD PolyFlags, FSpanBuffer* Span)
 {
 	guard(UXOpenGLRenderDevice::DrawGouraudFan);
@@ -251,20 +250,19 @@ void UXOpenGLRenderDevice::DrawGouraudPolygon(FSceneNode* Frame, FTextureInfo& I
 }
 
 #if XOGL_HP2
-// hp2: == retail D3D7 (ACTORPOLY_VERTEX_MAX, D3DDrv/Src/Direct3D7.cpp) and SoftDrv. The mesh batcher sizes
-// its vertex/index buffers ONCE, from the first device that renders a mesh (Render/Src/UnMeshRn.cpp), so
-// every device of the port returns the same value. The Gouraud VBO (DRAWGOURAUDPOLY_SIZE*12 vertices)
-// holds a full 6*256-index mesh batch expanded to a plain triangle list.
+// The value of HP2's D3D7 driver (ACTORPOLY_VERTEX_MAX) and SoftDrv: the mesh batcher sizes its buffers
+// once, from the first device that renders a mesh, so every device returns the same value. The Gouraud
+// VBO (DRAWGOURAUDPOLY_SIZE*12 vertices) holds a full 6*256-index batch as a plain triangle list.
 INT UXOpenGLRenderDevice::MaxVertices()
 {
 	return 256;
 }
 
-// hp2: the only path HP2 meshes (vertex, LOD and CPU-skinned skeletal), particles and decals use. Three
-// input shapes, exactly as retail D3D7 DrawTriangles:
+// The only path HP2 meshes (vertex, LOD and CPU-skinned skeletal), particles and decals use. Three
+// input shapes, as in HP2's D3D7 driver:
 //  * Indices != NULL                     -> indexed triangle list, NumIndices/3 triangles (meshes,
 //                                           particles; particle batches may hold Pts no index refers to);
-//  * Indices == NULL, NumIndices==NumPts -> ONE convex polygon drawn as a fan (decals incl. actor blob
+//  * Indices == NULL, NumIndices==NumPts -> one convex polygon drawn as a fan (decals incl. actor blob
 //                                           shadows, and the base DrawGouraudPolygon forwarder);
 //  * Indices == NULL otherwise           -> plain triangle list of NumPts vertices.
 // Per-vertex alpha is FTransTexture::Light.W; it is used when HP2AdjustPolyFlags selected straight alpha.

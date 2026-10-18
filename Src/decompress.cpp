@@ -332,6 +332,4 @@ void DecompressBlockDXT3(uint32_t x, uint32_t y, uint32_t width,
 		image + x + (y * width), width, transparent0, simpleAlpha, complexAlpha, alphaValues);
 }
 
-// ufront: GL4ES's DXT *compression* tail (STB_DXT_IMPLEMENTATION / stb_dxt_104.h) is omitted here — the
-// v400 port only ever decompresses (S3TC uploads compressed to hardware; the rare non-4-block-aligned
-// DXT1 fallback decodes to RGBA8 via DecompressBlockDXT1 above). Vendor stb_dxt if compression is needed.
+// gl4es' DXT compression part (stb_dxt) is left out: the driver only decodes (DecompressBlockDXT1).

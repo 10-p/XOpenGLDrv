@@ -32,8 +32,7 @@ void UXOpenGLRenderDevice::ShaderProgram::EmitGlobals(ShaderCompilationOptions O
 	{
 		if (Options.HasOption(ShaderCompilationOptions::OPT_GLES_WEBGL))
 		{
-			// ufront: WebGL2 == GLES 3.0 has no GL_OES_shader_io_blocks, so emit #version 300 es and use
-			// flattened plain in/out varyings (see the OPT_GLES_WEBGL branches in the Draw*_GLSL shaders).
+			// WebGL 2 (GLES 3.0) has no GL_OES_shader_io_blocks: #version 300 es with plain in/out varyings.
 			Out << "#version 300 es" END_LINE;
 		}
 		else
@@ -63,10 +62,8 @@ void UXOpenGLRenderDevice::ShaderProgram::EmitGlobals(ShaderCompilationOptions O
 // This determines how much precision the GPU uses when calculating.
 // Performance critical (especially on low end)!!
 // Not every option is available on any platform.
-// options: lowp/mediump/highp. ufront (2.12): use HIGHP. lowp/mediump texcoords snap to coarse steps ->
-// texture JITTER and "big-step" scrolling on drivers that HONOR the precision hint (AMD/Mesa radeonsi);
-// NVIDIA silently promotes everything to highp, which is why it looked smooth there. WebGL2/GLES3 guarantees
-// highp in BOTH vertex and fragment shaders, so this is safe.
+// options: lowp/mediump/highp. highp: with lower precision texture coordinates snap visibly on drivers
+// that honour the hint, and GLES 3 guarantees highp in both shader stages.
 precision highp float;
 precision highp int;
 )";
@@ -193,12 +190,8 @@ layout(std140) uniform EditorState
 };
 #endif
 
-// ufront (WebGL2/ES): only DECLARE this block when the fog code that uses it is
-// compiled in (OPT_DistanceFog). It is bound (glUniformBlockBinding + a UBO) only on
-// engines with distance fog (ENGINE_VERSION==227). Declaring it unconditionally on
-// v400 (where OPT_DistanceFog is off and it is never bound) left an active-but-unbound
-// uniform block, which WebGL2/ANGLE flags on every draw ("used but unbound uniform
-// buffer") and may drop the draw entirely -> black screen.
+// Declared only with OPT_DistanceFog, the only configuration that binds it: WebGL rejects draws
+// that use an unbound uniform block.
 #if OPT_DistanceFog
 layout(std140) uniform DistanceFogParams
 {
@@ -404,12 +397,8 @@ layout(std430, binding = )" << BufferBindingIndex << R"() buffer All)" << appToA
 	else
 	{
 		//, binding = )" << BufferBindingIndex << R"(
-		// ufront (WebGL2/ES portability): a std140 UBO array MUST have size >= 1. ParametersBufferSize is 0
-		// for the params-less programs (DrawSimple*, PostProcess), which emitted `Params[0]` -- a zero-length
-		// array is ILLEGAL in GLSL ES. NVIDIA silently tolerates it, but AMD Mesa does NOT: native Mesa (via
-		// Firefox) fails the shader build (ShaderProgram.cpp:784 assert -> crash), and ANGLE-on-Mesa (via
-		// Chromium) mis-handles it so the PostProcess blit shader yields a BLACK screen. Clamp to Max(size,1):
-		// an unused 1-element block is optimized out (inactive -> no binding needed), used blocks index [0].
+		// GLSL ES forbids zero-length arrays, and ParametersBufferSize is 0 for the programs without
+		// parameters (DrawSimple*, PostProcess): declare at least one element (an unused block is inactive).
 		Out << R"(
 layout(std140) uniform All)" << appToAnsi(Program->ShaderName) << R"(ShaderDrawParams
 {
@@ -485,9 +474,7 @@ static const TCHAR* ShaderTypeString(GLuint ShaderType)
 static void DumpShader(const char* Source, bool AddLineNumbers)
 {
 #if XOGL_UE1_V4XX
-	// ufront (v400): v400's TArray<FString>::AddItem assigns onto unconstructed element memory, whose
-	// garbage FString.Data pointer then gets realloc()'d -> crash. Log each line directly instead of
-	// accumulating into a TArray<FString>.
+	// v400's TArray<FString>::AddItem assigns into unconstructed memory, so each line is logged directly.
 	FString ShaderSource(Source);
 	INT LineNum = 0;
 	debugf(TEXT("XOpenGL: Shader Source:"));
@@ -563,7 +550,7 @@ bool UXOpenGLRenderDevice::ShaderProgram::CompileShaderFunction(GLuint ShaderFun
 			GLchar* compiler_log = new GLchar[blen + 1];
 			glGetShaderInfoLog(ShaderFunctionObject, blen, &slen, compiler_log);
 #if XOGL_UE1_V4XX
-			// v400 TCHAR is narrow (char): use %s and pass the ANSI log directly (%s would print empty).
+			// v400's TCHAR is char: the ANSI log is passed as is.
 			debugf(TEXT("XOpenGL: ErrorLog compiling %s: %s"), ShaderName, compiler_log);
 #else
 			debugf(TEXT("XOpenGL: ErrorLog compiling %s %s"), ShaderName, appFromAnsi(compiler_log));
@@ -884,8 +871,7 @@ void UXOpenGLRenderDevice::ShaderCompilationOptions::SetOptionsForRendererConfig
 	else
 	{
 		SetOption(OPT_GLES);
-		// ufront: ES_WEBGL is a subset of the ES profile — it also gets OPT_GLES, plus OPT_GLES_WEBGL for
-		// the WebGL2/GLES3.0-only deviations (flattened varyings, #version 300 es).
+		// ES_WEBGL is an ES profile: OPT_GLES plus OPT_GLES_WEBGL.
 		if (RenDev->IsWebGL())
 			SetOption(OPT_GLES_WEBGL);
 	}
@@ -907,8 +893,7 @@ FString UXOpenGLRenderDevice::ShaderCompilationOptions::GetStringHelper(void (*A
 {
     FString Result;
 #if XOGL_UE1_V4XX
-// ufront (v400): TCHAR is narrow (char) here, so a wide `L"..."` literal won't convert to const TCHAR*.
-// TEXT() resolves to the correct width on every target.
+// v400's TCHAR is char, so the option names use TEXT() instead of an L"" literal.
 #define ADD_OPTION(x) \
 AddOptionFunc(Result, TEXT(#x), (OptionsMask & x) ? true : false);
 #else

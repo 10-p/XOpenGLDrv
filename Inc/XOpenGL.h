@@ -38,10 +38,8 @@
     #include <unistd.h>
 #endif
 
-// ufront 2.34 — `_WIN32` here never meant "the Windows platform"; it meant "this build owns its own
-// WGL window and GL context". engine-ut99 drives XOpenGL through NSDLDrv/SDL2 on EVERY target, MinGW
-// Windows included, so the switch has to be the driver's own SDLBUILD (forced on by the engine's build
-// glue). Behaviour is unchanged for upstream/MSVC builds, where SDLBUILD is 0.
+// SDLBUILD selects the SDL window and context path (Linux, the web, and MinGW Windows, where NSDLDrv
+// owns the window); with SDLBUILD 0 the driver creates its own WGL window and context.
 #if SDLBUILD
 	#if SDL2BUILD
 		#include <SDL2/SDL.h>
@@ -129,9 +127,8 @@ enum EOpenGLVersion
 {
 	GL_Core = 0,
 	GL_ES = 1,
-	// ufront: WebGL2 == GLES 3.0 subset (no GL_OES_shader_io_blocks, #version 300 es, S3TC under the WebGL
-	// extension name). It is an ES profile: IsES() is true for both GL_ES and GL_ES_WEBGL. Selectable via
-	// the OpenGLVersion ini enum ("ES_WEBGL") so the WebGL path can be validated on desktop.
+	// WebGL 2 (GLES 3.0): #version 300 es without GL_OES_shader_io_blocks. An ES profile (IsES() is true
+	// for GL_ES and GL_ES_WEBGL); selectable on desktop as OpenGLVersion=ES_WEBGL.
 	GL_ES_WEBGL = 2,
 };
 
@@ -176,10 +173,8 @@ enum ERenderZTest
 };
 #endif
 
-// ufront: vanilla UT99 v400 port. PF_AlphaBlend is a UT469 addition absent in v400, and its 469
-// value (0x20000) collides with v400's PF_CloudWavy. Define it to 0 so the renderer's alpha-blend
-// branches are inert on v400 (vanilla content never sets it); PF_Translucent/Modulated/Masked keep
-// the classic UE1 blend behavior. Gated for a future v200 port.
+// UE1 v400 has no PF_AlphaBlend (the 469 value 0x20000 is v400's PF_CloudWavy): it is 0, so the
+// alpha-blend branches are inert and PF_Translucent/Modulated/Masked keep the classic UE1 blending.
 #if ENGINE_VERSION==400
 #ifndef PF_AlphaBlend
 #define PF_AlphaBlend 0
@@ -194,14 +189,13 @@ enum ERenderZTest
 #endif
 #endif
 
-// hp2: HP2 (433) has a real straight-alpha mode that UT v400 never had: PF_Highlighted|PF_Translucent
-// (fading actors, Opacity<1, alpha in FTransTexture::Light.W) and the Lumos surfaces (cAlpha). The
-// driver carries it internally on a synthetic poly flag in the one EPolyFlags bit 433 leaves free
-// (0x20000000, Engine/Inc/UnObj.h; content never sets it, HP2AdjustPolyFlags strips it on entry).
-// With PF_AlphaBlend real, the existing paths light up unchanged: SetBlend -> GL_SRC_ALPHA,
-// GL_ONE_MINUS_SRC_ALPHA; GetPolyFlagsAndDrawFlags -> DF_AlphaBlended (no PF_Occlude added); the
-// Gouraud shader multiplies the vertex alpha in. There is no premultiplied variant on 433
-// (PF_Highlighted alone keeps XOpenGL's GL_ONE, GL_ONE_MINUS_SRC_ALPHA).
+// HP2 433 has a straight-alpha mode: PF_Highlighted|PF_Translucent (fading actors, alpha in
+// FTransTexture::Light.W) and the Lumos surfaces (cAlpha). The driver carries it on an internal poly
+// flag in the one EPolyFlags bit 433 leaves free (content never sets it; HP2AdjustPolyFlags strips it),
+// so the existing straight-alpha paths serve it: SetBlend uses GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+// GetPolyFlagsAndDrawFlags sets DF_AlphaBlended without adding PF_Occlude, and the Gouraud shader
+// applies the vertex alpha. 433 has no premultiplied variant (PF_Highlighted alone stays GL_ONE,
+// GL_ONE_MINUS_SRC_ALPHA).
 #if XOGL_HP2
 #define PF_XOGL_AlphaBlend          0x20000000
 #define PF_AlphaBlend               PF_XOGL_AlphaBlend
@@ -237,8 +231,8 @@ enum ERenderZTest
 #endif
 
 // v400 lacks these Core helpers. Only TEXF_DXT1 is a compressed format in v400.
-// hp2: 433's ETextureFormat is identical to v400's (TEXF_P8..TEXF_RGBA8 = 0..5), so the aliases, the
-// two helpers and ERenderZTest apply to it verbatim.
+// 433's ETextureFormat matches v400's (TEXF_P8..TEXF_RGBA8 = 0..5), so the aliases, these helpers and
+// ERenderZTest apply to it unchanged.
 static inline UBOOL FIsCompressedFormat(INT Format) { return Format == TEXF_DXT1; }
 static inline FString FTextureFormatString(INT Format)
 {
@@ -442,7 +436,7 @@ public:
 	FShaderWriterX()
 	{
 #if XOGL_UE1_V4XX
-		// ufront (v400): TArray has no Reserve/AddNoCheck. Empty(Slack) reserves; Add() appends one.
+		// v400's TArray has no Reserve/AddNoCheck: Empty(Slack) reserves, Add() appends one.
 		Data.Empty(1000);
 		Data.Add();
 #else
@@ -539,7 +533,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 {
 #if UNREAL_OLDUNREAL
 	DECLARE_CLASS(UXOpenGLRenderDevice, URenderDevice, CLASS_Config, XOpenGLDrv)
-#elif ENGINE_VERSION==430 || XOGL_HP2 // hp2: 433 has the strict 4-arg DECLARE_CLASS(TClass,TSuper,Flags,TPackage)
+#elif ENGINE_VERSION==430 || XOGL_HP2 // 433 has the 4-argument DECLARE_CLASS(TClass, TSuper, Flags, TPackage)
 	DECLARE_CLASS(UXOpenGLRenderDevice, URenderDevice, CLASS_Config, XOpenGLDrv)
 #elif UNREAL_TOURNAMENT_OLDUNREAL
 	DECLARE_CLASS(UXOpenGLRenderDevice, URenderDeviceOldUnreal469, CLASS_Config, XOpenGLDrv)
@@ -600,8 +594,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 	INT NumAASamples;
 	INT DetailMax;
 	BYTE OpenGLVersion;
-	// ufront: ES_WEBGL is a subset of the ES profile. IsES() covers both (use it wherever the ES render
-	// path applies); IsWebGL() gates the WebGL2/GLES3.0-only deviations (flattened varyings, #version 300).
+	// IsES() is true for both ES profiles; IsWebGL() selects the WebGL 2 / GLES 3.0 differences (plain
+	// varyings, #version 300 es).
 	inline bool IsES() const { return OpenGLVersion == GL_ES || OpenGLVersion == GL_ES_WEBGL; }
 	inline bool IsWebGL() const { return OpenGLVersion == GL_ES_WEBGL; }
 	BYTE ParallaxVersion;
@@ -684,8 +678,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	FString AllExtensions;
 	INT		MaxClippingPlanes;
 #if XOGL_UE1_V4XX
-	// ufront (v400): MaxTextureSize is normally provided by the URenderDeviceOldUnreal469 base class,
-	// which vanilla v400 does not have (we inherit plain URenderDevice). Declare it here.
+	// On 469 MaxTextureSize comes from URenderDeviceOldUnreal469; v400 derives from plain URenderDevice.
 	INT		MaxTextureSize;
 #endif
 	INT		NumberOfExtensions;
@@ -1317,8 +1310,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 			// Enabled editor-specific code
 			OPT_Editor				 = 0x008000,
 
-			// ufront: WebGL2/GLES3.0 subset (flattened varyings, #version 300 es). Set in addition to
-			// OPT_GLES only when the render device is in the ES_WEBGL profile.
+			// WebGL 2 / GLES 3.0 (plain varyings, #version 300 es); set together with OPT_GLES in the ES_WEBGL
+			// profile.
 			OPT_GLES_WEBGL           = 0x010000
         };
 
@@ -1657,12 +1650,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 		glm::float32 Gamma;
 		glm::float32 LightMapIntensity;		// DrawComplex/OneXBlending
 		glm::float32 LightColorIntensity;	// DrawGouraud/ActorXBlending
-		// ufront (2.12): std140 rounds a uniform block's size UP to a multiple of 16 bytes. 8 mat4 (512) +
-		// 3 float (12) = 524, but the GLSL FrameState block's DATA_SIZE is 528. Without this pad the bound
-		// buffer is 524 -> 4 bytes too small. AMD/Mesa (radeonsi + ANGLE) STRICTLY reject every draw that
-		// binds it ("glDrawArrays: uniform buffer too small") -> BLACK screen; NVIDIA silently tolerates the
-		// shortfall. Pad the C++ struct to 528 so the buffer matches std140. (Diagnosed live on an RX 6900 XT:
-		// FrameState DATA_SIZE=528 vs boundBuf=524.)
+		// std140 rounds the block size up to a multiple of 16 (8 mat4 + 3 floats = 524 -> 528). The pad makes
+		// the bound buffer as large as the GLSL block, which strict drivers (AMD/Mesa, ANGLE) require.
 		glm::float32 std140Pad;
 
 	};
@@ -1981,10 +1970,10 @@ class UXOpenGLRenderDevice : public URenderDevice
 	void  Lock(FPlane InFlashScale, FPlane InFlashFog, FPlane ScreenClear, DWORD RenderLockFlags, BYTE* InHitData, INT* InHitSize);
 	void  Unlock(UBOOL Blit);
 #if XOGL_HP2
-	// hp2: the 433 face (Engine/Inc/UnRenDev.h): 5-arg DrawComplexSurface, pure MaxVertices/DrawTriangles.
-	// DrawGouraudPolygon is deliberately NOT declared: 433's base URenderDevice::DrawGouraudPolygon is a
-	// non-pure forwarder to DrawTriangles(..., NULL, NumPts, ...) (a fan), and nothing in HP2's
-	// Render/Engine calls it any more — meshes, particles and decals all come through DrawTriangles.
+	// The 433 render-device interface: 5-argument DrawComplexSurface, pure MaxVertices/DrawTriangles.
+	// DrawGouraudPolygon is not declared: 433's URenderDevice::DrawGouraudPolygon forwards to
+	// DrawTriangles(..., NULL, NumPts, ...) as a fan, and meshes, particles and decals all arrive through
+	// DrawTriangles.
 	void  DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& Surface, FSurfaceFacet& Facet, DWORD PolyFlags, BYTE cAlpha);
 	INT   MaxVertices();
 	void  DrawTriangles(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, _WORD* Indices, INT NumIndices, DWORD PolyFlags, FSpanBuffer* Span);
@@ -2031,9 +2020,9 @@ class UXOpenGLRenderDevice : public URenderDevice
 	DWORD PrepareGouraudCall(FSceneNode* Frame, FTextureInfo& Info, DWORD PolyFlags);
 	void FinishGouraudCall(FTextureInfo& Info, DWORD DrawFlags);
 #if XOGL_HP2
-	// hp2: the v400 DrawGouraudPolygon body, kept as DrawTriangles' fan path (one convex polygon).
+	// The v400 DrawGouraudPolygon body: DrawTriangles' fan path (one convex polygon).
 	void  DrawGouraudFan(FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, INT NumPts, DWORD PolyFlags, FSpanBuffer* Span);
-	// hp2: 433 blend semantics UT v400 never had (Src/SetTexture.cpp).
+	// Maps HP2's blend modes onto the driver's poly flags.
 	DWORD HP2AdjustPolyFlags(DWORD PolyFlags, UBOOL IsTile, FTextureInfo* Info);
 #endif
 	void PrepareSimpleCall(ShaderProgram* Shader, glm::uint& OldLineFlags, glm::uint LineFlags, glm::uint& OldBlendMode, glm::uint BlendMode);
