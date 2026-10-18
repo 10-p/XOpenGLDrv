@@ -38,10 +38,8 @@
     #include <unistd.h>
 #endif
 
-// ufront 2.34 — `_WIN32` here never meant "the Windows platform"; it meant "this build owns its own
-// WGL window and GL context". engine-ut99 drives XOpenGL through NSDLDrv/SDL2 on EVERY target, MinGW
-// Windows included, so the switch has to be the driver's own SDLBUILD (forced on by the engine's build
-// glue). Behaviour is unchanged for upstream/MSVC builds, where SDLBUILD is 0.
+// SDLBUILD selects the SDL window and context path (Linux, the web, and MinGW Windows, where NSDLDrv
+// owns the window); with SDLBUILD 0 the driver creates its own WGL window and context.
 #if SDLBUILD
 	#if SDL2BUILD
 		#include <SDL2/SDL.h>
@@ -129,9 +127,8 @@ enum EOpenGLVersion
 {
 	GL_Core = 0,
 	GL_ES = 1,
-	// ufront: WebGL2 == GLES 3.0 subset (no GL_OES_shader_io_blocks, #version 300 es, S3TC under the WebGL
-	// extension name). It is an ES profile: IsES() is true for both GL_ES and GL_ES_WEBGL. Selectable via
-	// the OpenGLVersion ini enum ("ES_WEBGL") so the WebGL path can be validated on desktop.
+	// WebGL 2 (GLES 3.0): #version 300 es without GL_OES_shader_io_blocks. An ES profile (IsES() is true
+	// for GL_ES and GL_ES_WEBGL); selectable on desktop as OpenGLVersion=ES_WEBGL.
 	GL_ES_WEBGL = 2,
 };
 
@@ -176,10 +173,8 @@ enum ERenderZTest
 };
 #endif
 
-// ufront: vanilla UT99 v400 port. PF_AlphaBlend is a UT469 addition absent in v400, and its 469
-// value (0x20000) collides with v400's PF_CloudWavy. Define it to 0 so the renderer's alpha-blend
-// branches are inert on v400 (vanilla content never sets it); PF_Translucent/Modulated/Masked keep
-// the classic UE1 blend behavior. Gated for a future v200 port.
+// UE1 v400 has no PF_AlphaBlend (the 469 value 0x20000 is v400's PF_CloudWavy): it is 0, so the
+// alpha-blend branches are inert and PF_Translucent/Modulated/Masked keep the classic UE1 blending.
 #if ENGINE_VERSION==400
 #ifndef PF_AlphaBlend
 #define PF_AlphaBlend 0
@@ -423,7 +418,7 @@ public:
 	FShaderWriterX()
 	{
 #if ENGINE_VERSION==400
-		// ufront (v400): TArray has no Reserve/AddNoCheck. Empty(Slack) reserves; Add() appends one.
+		// v400's TArray has no Reserve/AddNoCheck: Empty(Slack) reserves, Add() appends one.
 		Data.Empty(1000);
 		Data.Add();
 #else
@@ -581,8 +576,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 	INT NumAASamples;
 	INT DetailMax;
 	BYTE OpenGLVersion;
-	// ufront: ES_WEBGL is a subset of the ES profile. IsES() covers both (use it wherever the ES render
-	// path applies); IsWebGL() gates the WebGL2/GLES3.0-only deviations (flattened varyings, #version 300).
+	// IsES() is true for both ES profiles; IsWebGL() selects the WebGL 2 / GLES 3.0 differences (plain
+	// varyings, #version 300 es).
 	inline bool IsES() const { return OpenGLVersion == GL_ES || OpenGLVersion == GL_ES_WEBGL; }
 	inline bool IsWebGL() const { return OpenGLVersion == GL_ES_WEBGL; }
 	BYTE ParallaxVersion;
@@ -665,8 +660,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	FString AllExtensions;
 	INT		MaxClippingPlanes;
 #if ENGINE_VERSION==400
-	// ufront (v400): MaxTextureSize is normally provided by the URenderDeviceOldUnreal469 base class,
-	// which vanilla v400 does not have (we inherit plain URenderDevice). Declare it here.
+	// On 469 MaxTextureSize comes from URenderDeviceOldUnreal469; v400 derives from plain URenderDevice.
 	INT		MaxTextureSize;
 #endif
 	INT		NumberOfExtensions;
@@ -1298,8 +1292,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 			// Enabled editor-specific code
 			OPT_Editor				 = 0x008000,
 
-			// ufront: WebGL2/GLES3.0 subset (flattened varyings, #version 300 es). Set in addition to
-			// OPT_GLES only when the render device is in the ES_WEBGL profile.
+			// WebGL 2 / GLES 3.0 (plain varyings, #version 300 es); set together with OPT_GLES in the ES_WEBGL
+			// profile.
 			OPT_GLES_WEBGL           = 0x010000
         };
 
@@ -1638,12 +1632,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 		glm::float32 Gamma;
 		glm::float32 LightMapIntensity;		// DrawComplex/OneXBlending
 		glm::float32 LightColorIntensity;	// DrawGouraud/ActorXBlending
-		// ufront (2.12): std140 rounds a uniform block's size UP to a multiple of 16 bytes. 8 mat4 (512) +
-		// 3 float (12) = 524, but the GLSL FrameState block's DATA_SIZE is 528. Without this pad the bound
-		// buffer is 524 -> 4 bytes too small. AMD/Mesa (radeonsi + ANGLE) STRICTLY reject every draw that
-		// binds it ("glDrawArrays: uniform buffer too small") -> BLACK screen; NVIDIA silently tolerates the
-		// shortfall. Pad the C++ struct to 528 so the buffer matches std140. (Diagnosed live on an RX 6900 XT:
-		// FrameState DATA_SIZE=528 vs boundBuf=524.)
+		// std140 rounds the block size up to a multiple of 16 (8 mat4 + 3 floats = 524 -> 528). The pad makes
+		// the bound buffer as large as the GLSL block, which strict drivers (AMD/Mesa, ANGLE) require.
 		glm::float32 std140Pad;
 
 	};

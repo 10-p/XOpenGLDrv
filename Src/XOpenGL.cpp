@@ -18,14 +18,10 @@
 =============================================================================*/
 
 #if defined(__EMSCRIPTEN__) && defined(__EMSCRIPTEN_PTHREADS__)
-// ufront 2.13.2 — on a threaded web build the engine runs on a worker and NSDLViewport creates the WebGL
-// context directly (Emscripten #24792 makes SDL's EGL path unusable there). SDL therefore owns no GL
-// context, so the three SDL GL calls this driver makes — adopt-current, make-current, get-proc-address —
-// have to come from Emscripten instead. Everything else, including the v400 "don't create or swap our own
-// context" rule, is unchanged.
-//
-// Included FIRST, ahead of the engine headers: this pulls in <time.h>, and UE1's UnFile.h #defines
-// clock(Timer), which turns time.h's `clock_t clock(void)` into a syntax error pointing at a system header.
+// On a threaded web build NSDLViewport creates the WebGL context on the worker (SDL's EGL path does not
+// work there, Emscripten issue 24792), so the current context, make-current and the entry points come
+// from Emscripten instead of SDL. Included before the engine headers: it pulls in <time.h>, whose
+// clock() declaration UE1's clock(Timer) macro would break.
 #include <emscripten/html5_webgl.h>
 #endif
 
@@ -106,10 +102,8 @@ namespace
 	inline void XOpenGLDestroyContext(SDL_GLContext Context)
 	{
 #if defined(__EMSCRIPTEN__) && defined(__EMSCRIPTEN_PTHREADS__)
-		// ufront 2.13.2: on a threaded web build the context belongs to NSDLViewport (v400 adopts it — see
-		// CreateOpenGLContext) and SDL never owned it, so SDL_GL_DeleteContext here would either fail or
-		// tear down the viewport's only context. The main Exit path is already v400-excluded for exactly
-		// that reason; this covers the remaining call sites (QueryOnly, ShutdownAfterError).
+		// The context belongs to NSDLViewport, not SDL: deleting it here would fail or destroy the viewport's
+		// only context (QueryOnly and ShutdownAfterError reach this).
 		(void)Context;
 #elif SDL2BUILD
 		SDL_GL_DeleteContext(Context);
@@ -160,7 +154,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 	UEnum* OpenGLVersions = new(GetClass(), TEXT("OpenGLVersions"))UEnum(NULL);
 	new(OpenGLVersions->Names)FName(TEXT("Core"));
 	new(OpenGLVersions->Names)FName(TEXT("ES"));
-	new(OpenGLVersions->Names)FName(TEXT("ES_WEBGL")); // ufront: WebGL2/GLES3.0 subset (index 2 == GL_ES_WEBGL)
+	new(OpenGLVersions->Names)FName(TEXT("ES_WEBGL")); // GL_ES_WEBGL (2): WebGL 2 / GLES 3.0
 
 	UEnum* ParallaxVersions = new(GetClass(), TEXT("Parallax"))UEnum(NULL);
 	new(ParallaxVersions->Names)FName(TEXT("Disabled"));
@@ -301,9 +295,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 	UseVSync = VS_Adaptive;
 #endif
 	
-	// ufront (2.12): detail textures now UPLOAD correctly on web (TEXF_BGRA8 uses GL_RGBA + B<->R swap on ES,
-	// and OpenGLVersion is ES_WEBGL). DetailMax itself is left upstream-gated (owner preference) -> it is 0 by
-	// default on this v400 build and enabled via the ini ([XOpenGLDrv.XOpenGLRenderDevice] DetailMax=0..3).
+	// Without OldUnreal the class default stays 0; on the web Init uses 2 when the ini leaves it unset or 0.
 #if UNREAL_TOURNAMENT_OLDUNREAL
 	DetailMax = 2;
 #endif
@@ -408,20 +400,14 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	iPixelFormat = 0;
 #if ENGINE_VERSION==400
 #ifdef __EMSCRIPTEN__
-	// ufront: THE single place the platform selects the profile. WebGL can only ever be WebGL2 == GLES 3.0,
-	// so force the ES_WEBGL profile here; the ini/StaticConstructor default (GL_Core) would otherwise emit
-	// #version 330 core + geometry shaders that WebGL2 cannot compile. Everything downstream keys off
-	// OpenGLVersion / IsES() / IsWebGL() — no other __EMSCRIPTEN__ branch drives render behaviour. On
-	// desktop the profile comes from the ini (OpenGLVersion=ES_WEBGL) so this path is validatable natively.
+	// The web is always WebGL 2 (GLES 3.0), so the profile is ES_WEBGL whatever the ini says; everything
+	// downstream keys off OpenGLVersion, IsES() and IsWebGL(). Desktop builds take the profile from the ini.
 	OpenGLVersion = GL_ES_WEBGL;
 #endif
 #endif
 
-	// ufront (2.12): the inherited base feature flags (Coronas/VolumetricLighting/ShinySurfaces/DetailTextures/
-	// HighDetailActors) now come from the shared web config read in UNSDLClient::TryRenderDevice. DetailMax is
-	// XOpenGL's OWN config prop and must be correct BEFORE InitShaders bakes #define OPT_DetailMax, so read it
-	// from our ini section here on web (the render-device instance is zero-initialized on the web
-	// StaticFindObject path; see NSDLClient.cpp). Default 2; user-tunable via [XOpenGLDrv...] DetailMax.
+	// The web render device starts zero-initialised and DetailMax must be set before the shaders bake
+	// OPT_DetailMax, so it is read from [XOpenGLDrv.XOpenGLRenderDevice] here, defaulting to 2.
 #ifdef __EMSCRIPTEN__
 	INT CfgDetailMax = -1;
 	if (GConfig && GConfig->GetInt(TEXT("XOpenGLDrv.XOpenGLRenderDevice"), TEXT("DetailMax"), CfgDetailMax, NULL))
@@ -778,9 +764,8 @@ UBOOL UXOpenGLRenderDevice::IsSupportedGLVersion(INT MajorVersion, INT MinorVers
 void UXOpenGLRenderDevice::SelectGLVersion()
 {
 #if ENGINE_VERSION==400
-	// ufront (v400): we reuse NSDLViewport's already-current context, so there is nothing to probe or
-	// select here. Skip IsSupportedGLVersion() — it creates temporary SDL windows/contexts, which
-	// conflicts with the windowing driver's SDL video subsystem (and isn't needed for a shared context).
+	// The windowing driver's context is already current, so there is nothing to probe;
+	// IsSupportedGLVersion() would create temporary SDL windows and contexts beside the viewport's.
 	SelectedMajorVersion = 3;
 	SelectedMinorVersion = 3;
 	SelectedGLVersion = true;
@@ -882,16 +867,11 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
     // On non-Windows targets, we need to specify the requested GL version
     // before creating the window
 #if ENGINE_VERSION==400
-	// ufront (v400): do NOT create our own GL context (native or web). NSDLViewport already created the
-	// SDL GL context and made it current before Init — adopt it (like NOpenGLESDrv). On the web this is
-	// the single WebGL2 context; on native it's the desktop context. Exit()/Unlock() don't delete/swap it
-	// (the viewport owns window + swap). (A desktop two-context experiment to force strict ES3.0 was
-	// dropped: NVIDIA only exposes ES 3.2 and the second context split resources -> WebGL2 strictness can
-	// only be validated in-browser, and WebGL has a single context anyway.)
+	// Use the context NSDLViewport created and made current before Init (on the web, the WebGL 2
+	// context); the viewport owns the window, the buffer swap and the context's deletion.
 #if defined(__EMSCRIPTEN__) && defined(__EMSCRIPTEN_PTHREADS__)
-	// ufront 2.13.2: the context to adopt was created with emscripten_webgl_create_context on the worker,
-	// so SDL knows nothing about it and SDL_GL_GetCurrentContext() would hand back NULL — which reads as
-	// "context creation failed" and takes the driver down the fallback path.
+	// Created with emscripten_webgl_create_context on the worker, so SDL_GL_GetCurrentContext() would
+	// return NULL.
 	glContext = (SDL_GLContext)(intptr_t)emscripten_webgl_get_current_context();
 #else
 	glContext = SDL_GL_GetCurrentContext();
@@ -974,14 +954,11 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 	if (!gladLoadGL())
 		appErrorf(TEXT("XOpenGL: Init failed!"));
 #elif defined(__EMSCRIPTEN__)
-	// ufront (web): WebGL2 == GLES 3.0. Use the desktop-GL loader (glad's GL3 entry-point set shares names
-	// with the ES3 subset), so the ES3 functions XOpenGL needs (UBO/VAO/glMapBufferRange/instancing) get
-	// resolved via emscripten's GetProcAddress. The ES2 loader would miss all of those. GL4-only entry
-	// points that WebGL2 lacks resolve to null and are gated off at runtime by CheckExtensions.
+	// WebGL 2 is GLES 3.0: the desktop GL loader resolves the GL 3 entry points the driver needs (uniform
+	// buffers, VAOs, glMapBufferRange, instancing), which the GLES 2 loader would miss. GL 4 entry points
+	// stay null and CheckExtensions turns off what needs them.
 #if defined(__EMSCRIPTEN_PTHREADS__)
-	// ufront 2.13.2: SDL owns no context on a threaded build, so SDL_GL_GetProcAddress resolves against
-	// nothing and hands back nulls — glad would then load a table of null entry points. Emscripten's own
-	// resolver is context-aware and works on the worker.
+	// SDL owns no context on a threaded build, so the entry points come from Emscripten's resolver.
 	gladLoadGLLoader((GLADloadproc)emscripten_webgl_get_proc_address);
 #else
 	gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
@@ -1622,7 +1599,7 @@ void UXOpenGLRenderDevice::SetSceneNode(FSceneNode* Frame)
 		if (!Actor->bStatic && Actor->bMovable && !HWLighting)
 			continue;
 
-#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // ufront: v400 shares the UT99-family light layout (FPlane.X/Y/Z, Region.ZoneNumber) — not the 227/469 fields.
+#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // v400 has the UT99 light fields (FPlane.X/Y/Z, Region.ZoneNumber)
 		LightList.AddItem(Actor);
 #else
 		if (Actor->NormalLightRadius) //for normal mapping only add lights with normallightradius set. Needs performance tests if not.
@@ -1639,7 +1616,7 @@ void UXOpenGLRenderDevice::SetSceneNode(FSceneNode* Frame)
 
 		FPlane RGBColor = FGetHSV(Actor->LightHue, Actor->LightSaturation, Actor->LightBrightness);
 
-#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // ufront: v400 shares the UT99-family light layout (FPlane.X/Y/Z, Region.ZoneNumber) — not the 227/469 fields.
+#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // v400 has the UT99 light fields (FPlane.X/Y/Z, Region.ZoneNumber)
 		LightData->LightData1[i] = glm::vec4(RGBColor.X, RGBColor.Y, RGBColor.Z, Actor->LightCone);
 #else
 		LightData->LightData1[i] = glm::vec4(RGBColor.R, RGBColor.G, RGBColor.B, Actor->LightCone);
@@ -1647,7 +1624,7 @@ void UXOpenGLRenderDevice::SetSceneNode(FSceneNode* Frame)
 		LightData->LightData2[i] = glm::vec4(Actor->LightEffect, Actor->LightPeriod, Actor->LightPhase, Actor->LightRadius);
 		LightData->LightData3[i] = glm::vec4(Actor->LightType, Actor->VolumeBrightness, Actor->VolumeFog, Actor->VolumeRadius);
 		
-#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // ufront: v400 shares the UT99-family light layout (FPlane.X/Y/Z, Region.ZoneNumber) — not the 227/469 fields.
+#if (ENGINE_VERSION>=430 && ENGINE_VERSION<1100) || ENGINE_VERSION==400 // v400 has the UT99 light fields (FPlane.X/Y/Z, Region.ZoneNumber)
 		LightData->LightData4[i] = glm::vec4(Actor->WorldLightRadius(), NumLights, (GLfloat)Actor->Region.ZoneNumber, (GLfloat)(Frame->Viewport->Actor ? Frame->Viewport->Actor->Region.ZoneNumber : 0.f));
 		LightData->LightData5[i] = glm::vec4(Actor->LightRadius * 10, 1.0, 0.0, 0.0);
 #else
@@ -2012,8 +1989,7 @@ void UXOpenGLRenderDevice::Unlock(UBOOL Blit)
 		{
 			SetProgram(PostProcess_Prog);
 #if ENGINE_VERSION==400
-			// ufront (v400): UViewport has no PhysicalSizeX/Y (a UT469 hi-DPI addition). We render to
-			// the plain window surface, so the drawable size is just SizeX/SizeY.
+			// v400's UViewport has no PhysicalSizeX/Y; the drawable is SizeX x SizeY.
 			static_cast<PostProcessProgram*>(Shaders[PostProcess_Prog])->Draw(RenderColorTexture, Viewport->SizeX, Viewport->SizeY);
 #else
 			static_cast<PostProcessProgram*>(Shaders[PostProcess_Prog])->Draw(RenderColorTexture, Viewport->PhysicalSizeX, Viewport->PhysicalSizeY);
@@ -2023,9 +1999,8 @@ void UXOpenGLRenderDevice::Unlock(UBOOL Blit)
 
 #if SDLBUILD
 #if ENGINE_VERSION==400
-			// ufront (v400): NSDLViewport owns the window and performs SDL_GL_SwapWindow in its own
-			// present path (UNSDLViewport::Unlock). Don't double-swap here — a second swap would present
-			// an undefined back buffer.
+			// NSDLViewport swaps the buffers in its own Unlock; a second swap would present an undefined
+			// back buffer.
 #else
 			SDL_GL_SwapWindow(Window);
 #endif
@@ -2139,19 +2114,15 @@ void UXOpenGLRenderDevice::SetGamma(FLOAT GammaCorrection)
 	guard(UXOpenGLRenderDevice::SetGamma);
 
 #if ENGINE_VERSION==400
-	// ufront (v400): the web client's Brightness defaults to 0 (no video-settings UI writes it), which would
-	// crush the gamma to near-black. Substitute the retail default brightness (0.5) so the present matches a
-	// default desktop config. A real brightness value (>0) passes through untouched.
+	// A Brightness of 0 (unset; v400 does not apply the config default) becomes the default 0.5.
 	if (GammaCorrection <= 0.f)
 		GammaCorrection = 0.5f;
 #endif
 	GammaCorrection += 0.1f; // change range from 0.0-0.9 to 0.1 to 1.0
 	FLOAT GammaMult = (GIsEditor ? GammaMultiplierUED : GammaMultiplier);
 #if ENGINE_VERSION==400
-	// ufront (v400): GammaMultiplier/GammaMultiplierUED are CPF_Config floats whose StaticConstructor
-	// default (1.75) is not applied on v400 (they load as 0 from the retail ini), which drives Gamma to 0.
-	// A zero Gamma makes the PostProcess present shader's GammaCorrect() compute pow(color, 1/0)=0 -> a
-	// fully black screen even though the scene renders correctly into the RenderFBO. Restore the default.
+	// v400 does not apply the StaticConstructor default (1.75) of GammaMultiplier/GammaMultiplierUED; a
+	// zero multiplier would make the present shader's pow(color, 1/Gamma) black.
 	if (GammaMult <= 0.f)
 		GammaMult = 1.75f;
 #endif
@@ -2165,9 +2136,7 @@ FLOAT UXOpenGLRenderDevice::GetViewportGamma(UViewport* Viewport) const
 	if (Viewport->IsOrtho())
 		return 1.f;
 #if ENGINE_VERSION==400
-	// ufront (v400): last-resort guard — if SetGamma never ran (Gamma still 0), avoid the black-screen
-	// pow(color, 1/0). With SetGamma's Brightness/GammaMultiplier defaults, Gamma computes to ~1.05
-	// (retail-default look) and passes through here unchanged.
+	// Gamma is 0 until SetGamma runs; 1 keeps the present shader's pow(color, 1/Gamma) defined.
 	if (Gamma <= 0.f)
 		return 1.f;
 #endif
@@ -2256,10 +2225,8 @@ void UXOpenGLRenderDevice::ReadPixels(FColor* Pixels)
 
 	MakeCurrent();
 
-	// ufront 2.91: with UseAA the frame is drawn into the MULTISAMPLED RenderFBO, which GLES 3 / WebGL 2 refuse to
-	// read (glReadPixels on a multisampled read framebuffer is INVALID_OPERATION), and Unlock discards it after the
-	// resolve anyway. The resolved frame is in RenderResolvedFBO. Measured on the web (engine-ut99): SHOT with UseAA=True
-	// wrote an all-black BMP, with UseAA=False a real one; HP2's save thumbnails go through here too.
+	// With UseAA the frame is drawn into the multisampled RenderFBO, which GLES 3 / WebGL 2 cannot read (and
+	// Unlock discards it after the resolve); the resolved frame is in RenderResolvedFBO.
 	const GLuint ReadFBO = (UseAA && RenderResolvedFBO) ? RenderResolvedFBO : RenderFBO;
 	if (ReadFBO)
 		glBindFramebuffer(GL_FRAMEBUFFER, ReadFBO);
@@ -2344,9 +2311,7 @@ void UXOpenGLRenderDevice::Exit()
 
 	#if SDLBUILD
 #if ENGINE_VERSION==400
-		// ufront (v400): we adopted NSDLViewport's context (see CreateOpenGLContext) — it destroys the
-		// context + window itself in CloseWindow. Do NOT delete/unbind it here (double-free / stealing the
-		// viewport's current context). Just drop our references.
+		// The context is NSDLViewport's, which destroys it with the window: only the references are dropped.
 		CurrentGLContext = NULL;
 		AllContexts.RemoveItem(glContext);
 		glContext = NULL;

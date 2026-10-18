@@ -31,23 +31,18 @@ using std::isfinite;
 #include "Render.h"
 #elif ENGINE_VERSION==1100
 #include "RenderPrivate.h"
-// ufront: vanilla UT99 v400 port (engine-ut99). v400 ships no separate public "Render.h"; the
-// software-renderer internals (FSceneNode/FSurfaceInfo/FSavedPoly/FTransTexture/etc.) live in
-// RenderPrivate.h — exactly as the reference NOpenGLESDrv includes it. Gated for a future v200 port.
+// UE1 v400 has no public Render.h; FSceneNode, FSurfaceInfo, FSavedPoly, FTransTexture and the other
+// renderer types are in RenderPrivate.h.
 #elif ENGINE_VERSION==400
 #include "RenderPrivate.h"
 #endif
-// ufront (v400): RenderPrivate.h already pulls in the guard-less UnRender.h, so including it again
-// here would redefine URenderDevice/FSceneNode/etc. Skip the trailing include for v400 (the reference
-// NOpenGLESDrv includes RenderPrivate.h only, for exactly this reason).
+// v400's RenderPrivate.h already includes UnRender.h, which has no include guard.
 #if ENGINE_VERSION!=400
 #include "UnRender.h"
 #endif
 
-// ufront: vanilla UT99 v400 compatibility shims — driver-local, gated for a future v200 port. v400
-// Core lacks the Windows-style BOOL/TRUE/FALSE the fork uses pervasively, has no PF_None, and no
-// NAME_DevGraphics log category. Define them here (after Engine.h/RenderPrivate.h so UBOOL, the PF_
-// flags, and the EName enum are already visible). We deliberately do NOT modify the engine.
+// v400 Core has no BOOL/TRUE/FALSE, no PF_None and no NAME_DevGraphics log category. They are defined
+// here, after Engine.h and RenderPrivate.h, so UBOOL, the PF_ flags and EName are visible.
 #if ENGINE_VERSION==400
 typedef UBOOL BOOL;
 #ifndef TRUE

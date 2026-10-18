@@ -66,9 +66,8 @@ layout(location = 3) in vec2 TexCoords; // TexCoords
 layout(location = 4) in vec4 LightColor;
 layout(location = 5) in vec4 FogColor;
 
-// ufront: ES_WEBGL (WebGL2/GLES3.0) has no stage interface blocks (out VertexData {} needs ES3.1 /
-// GL_OES_shader_io_blocks), so it emits plain varyings and marshals them through a local struct named Out
-// (the shared main() body writes Out.Field unchanged). Core and desktop-ES 3.1 keep the io-block path.
+// GLES 3.0 has no interface blocks between stages (they need ES 3.1 / GL_OES_shader_io_blocks), so
+// ES_WEBGL passes plain varyings, copied from a local struct named Out that main() fills.
 #if OPT_GLES_WEBGL
 struct VertexDataT
 {
@@ -316,8 +315,7 @@ layout(location = 0, index = 1) out vec4 FragColor1;
 layout(location = 0, index = 0) out vec4 FragColor;
 #endif
 
-// ufront: ES_WEBGL marshals the inter-stage block into a local struct named In (the shared main() body
-// reads In.Field unchanged). Core and desktop-ES 3.1 keep the io-block.
+// ES_WEBGL copies the plain varyings into a local struct named In that main() reads.
 #if OPT_GLES_WEBGL
 struct VertexDataT
 {

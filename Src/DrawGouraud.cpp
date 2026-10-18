@@ -73,7 +73,7 @@ DWORD UXOpenGLRenderDevice::PrepareGouraudCall(FSceneNode* Frame, FTextureInfo& 
 	DWORD DrawFlags = ShaderDrawFlags::DF_None;
 	DWORD NextPolyFlags = GetPolyFlagsAndDrawFlags(PolyFlags, DrawFlags, FALSE);
 #if ENGINE_VERSION==400
-	// ufront (v400): no GUglyHackFlags / HACKFLAGS_NoNearZ (a UT469 addition). Vanilla never sets it.
+	// v400 has no GUglyHackFlags / HACKFLAGS_NoNearZ.
 	UBOOL NoNearZ = FALSE;
 #else
 	UBOOL NoNearZ = (GUglyHackFlags & HACKFLAGS_NoNearZ) == HACKFLAGS_NoNearZ;
