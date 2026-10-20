@@ -76,7 +76,14 @@ void UXOpenGLRenderDevice::CheckExtensions()
         }
     }
 	//usually we would assume this extension to be supported in general, but it seems not every driver really does in ES mode. (RasPi, AMD Radeon R5 Graphics, ???)
-    if (GLExtensionSupported(TEXT("GL_EXT_clip_cull_distance")) || GLExtensionSupported(TEXT("GL_ARB_cull_distance")))
+    if (IsES())
+    {
+        // An ES compiler (Adreno) rejects the shaders' sized redeclaration of gl_ClipDistance as a reserved
+        // name and fails to link without it; ES profiles go without clip distances, as WebGL does.
+        debugf(NAME_DevGraphics, TEXT("XOpenGL: clip distances off on an ES profile."));
+        SupportsClipDistance = false;
+    }
+    else if (GLExtensionSupported(TEXT("GL_EXT_clip_cull_distance")) || GLExtensionSupported(TEXT("GL_ARB_cull_distance")))
     {
         debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_cull_distance / GL_EXT_clip_cull_distance found."));
     }
@@ -152,7 +159,14 @@ void UXOpenGLRenderDevice::CheckExtensions()
 	}
 
     //usually we would assume this extension to be supported in general, but it seems not every driver really does in ES mode. (RasPi, AMD Radeon R5 Graphics, ???)
-    if (GLExtensionSupported(TEXT("GL_EXT_clip_cull_distance")) || GLExtensionSupported(TEXT("GL_ARB_cull_distance")))
+    if (IsES())
+    {
+        // An ES compiler (Adreno) rejects the shaders' sized redeclaration of gl_ClipDistance as a reserved
+        // name and fails to link without it; ES profiles go without clip distances, as WebGL does.
+        debugf(NAME_DevGraphics, TEXT("XOpenGL: clip distances off on an ES profile."));
+        SupportsClipDistance = false;
+    }
+    else if (GLExtensionSupported(TEXT("GL_EXT_clip_cull_distance")) || GLExtensionSupported(TEXT("GL_ARB_cull_distance")))
     {
         debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_cull_distance / GL_EXT_clip_cull_distance found."));
     }
