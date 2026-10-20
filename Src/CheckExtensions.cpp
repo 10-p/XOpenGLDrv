@@ -79,6 +79,13 @@ void UXOpenGLRenderDevice::CheckExtensions()
     if (GLExtensionSupported(TEXT("GL_EXT_clip_cull_distance")) || GLExtensionSupported(TEXT("GL_ARB_cull_distance")))
     {
         debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_cull_distance / GL_EXT_clip_cull_distance found."));
+        if (IsES())
+        {
+            // GLSL ES forbids redeclaring gl_ClipDistance, and a program that writes the extension's own sized
+            // array does not link on the Qualcomm driver: an ES profile draws without clip planes, as WebGL does.
+            GWarn->Logf(TEXT("XOpenGL: ES profile: clip planes off (gl_ClipDistance programs do not link)."));
+            SupportsClipDistance = false;
+        }
     }
     else
     {
@@ -155,6 +162,13 @@ void UXOpenGLRenderDevice::CheckExtensions()
     if (GLExtensionSupported(TEXT("GL_EXT_clip_cull_distance")) || GLExtensionSupported(TEXT("GL_ARB_cull_distance")))
     {
         debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_cull_distance / GL_EXT_clip_cull_distance found."));
+        if (IsES())
+        {
+            // GLSL ES forbids redeclaring gl_ClipDistance, and a program that writes the extension's own sized
+            // array does not link on the Qualcomm driver: an ES profile draws without clip planes, as WebGL does.
+            GWarn->Logf(TEXT("XOpenGL: ES profile: clip planes off (gl_ClipDistance programs do not link)."));
+            SupportsClipDistance = false;
+        }
     }
     else
     {
