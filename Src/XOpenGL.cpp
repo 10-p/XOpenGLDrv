@@ -278,7 +278,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 	ActorXBlending = 1;
 
 	MaxTextureSize = 4096;
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 	OpenGLVersion = GL_ES;
     UseEnhancedLightmaps = 0; // CHECK ME! GL_ES and UseEnhancedLightmaps don't like each other very much (yet?).
 #elif __LINUX_ARM__ || __LINUX_ARM64__
@@ -399,9 +399,10 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	glContext = NULL;
 	iPixelFormat = 0;
 #if ENGINE_VERSION==400
-#ifdef __EMSCRIPTEN__
-	// The web is always WebGL 2 (GLES 3.0), so the profile is ES_WEBGL whatever the ini says; everything
-	// downstream keys off OpenGLVersion, IsES() and IsWebGL(). Desktop builds take the profile from the ini.
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+	// The web is always WebGL 2 (GLES 3.0) and Android's context is GLES 3.0, so the profile is ES_WEBGL
+	// whatever the ini says; everything downstream keys off OpenGLVersion, IsES() and IsWebGL(). Desktop
+	// builds take the profile from the ini.
 	OpenGLVersion = GL_ES_WEBGL;
 #endif
 #endif
