@@ -83,7 +83,7 @@ precision highp int;
 	Out << "#define LE_Sunlight " << (LE_MAX + 1) << "u" << END_LINE;
 #endif
 	Out << "#define ENGINE_VERSION " << ENGINE_VERSION << END_LINE;	
-	Out << "#define MAX_LIGHTS " << MAX_LIGHTS << END_LINE;	
+	Out << "#define MAX_LIGHTS " << GL->LightSlots << END_LINE;	
 
 	// Editor rendering modes
 	Out << "#define REN_None " << REN_None << "u" << END_LINE;

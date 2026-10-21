@@ -393,6 +393,9 @@ void UXOpenGLRenderDevice::CheckExtensions()
         MaxUniformBlockSize = 65536;
     }
     debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxUniformBlockSize: %i"), MaxUniformBlockSize);
+    // LightInfo is six std140 vec4 arrays of LightSlots entries; a GPU at the ES 3 minimum (16 KB) fits 170 lights.
+    LightSlots = Clamp<INT>(MaxUniformBlockSize / (6 * 16), 1, MAX_LIGHTS);
+    debugf(NAME_DevGraphics, TEXT("XOpenGL: LightSlots: %i"), LightSlots);
 
     INT MaxOutputComponents = 0;
     glGetIntegerv(GL_MAX_VERTEX_OUTPUT_COMPONENTS, &MaxOutputComponents);

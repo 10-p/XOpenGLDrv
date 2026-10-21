@@ -683,6 +683,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 #endif
 	INT		NumberOfExtensions;
 	INT		MaxUniformBlockSize;
+	INT		LightSlots;		// lights the LightInfo block holds: MAX_LIGHTS, or fewer where the block would not fit
 	INT		MaxSSBOBlockSize;
 	bool	SupportsAMDMemoryInfo;
 	bool	SupportsNVIDIAMemoryInfo;
