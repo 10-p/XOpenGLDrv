@@ -1607,7 +1607,7 @@ void UXOpenGLRenderDevice::SetSceneNode(FSceneNode* Frame)
 			LightList.AddItem(Actor);
 #endif
 	}
-	NumLights = LightList.Num();
+	NumLights = Min(LightList.Num(), LightSlots);
 
 	auto LightData = LightInfoBuffer.GetElementPtr(0);
 	for (INT i = 0; i < NumLights; i++)
@@ -1632,8 +1632,13 @@ void UXOpenGLRenderDevice::SetSceneNode(FSceneNode* Frame)
 		LightData->LightData4[i] = glm::vec4(Actor->WorldLightRadius(), NumLights, (GLfloat)Actor->Region.ZoneNumber, (GLfloat)(Frame->Viewport->Actor ? Frame->Viewport->Actor->CameraRegion.ZoneNumber : 0.f));
 		LightData->LightData5[i] = glm::vec4(Actor->NormalLightRadius, (GLfloat)Actor->bZoneNormalLight, Actor->LightBrightness, 0.0);
 #endif
-		if (i == MAX_LIGHTS - 1)
-			break;
+	}
+	// The shader's arrays hold LightSlots entries each: where that is fewer than MAX_LIGHTS, they go back to back.
+	if (LightSlots < MAX_LIGHTS)
+	{
+		glm::vec4* Flat = &LightData->LightData1[0];
+		for (INT k = 1; k < 6; k++)
+			memmove(&Flat[k * LightSlots], &Flat[k * MAX_LIGHTS], LightSlots * sizeof(glm::vec4));
 	}
 
 	LightInfoBuffer.Bind();
