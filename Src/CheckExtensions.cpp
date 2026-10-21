@@ -309,6 +309,8 @@ void UXOpenGLRenderDevice::CheckExtensions()
 		GWarn->Logf(TEXT("XOpenGL: GL_EXT_texture_compression_s3tc extension not found!"));
         SupportsS3TC = false;
 	}
+    // The engine hands a device compressed mips only when it says it takes them: without S3TC it gets the P8 ones.
+    SupportsTC = SupportsS3TC;
 
     if (UseSRGBTextures && !GLExtensionSupported(TEXT("GL_EXT_texture_sRGB")) && !GLExtensionSupported(TEXT("GL_EXT_sRGB"))) //GL_EXT_sRGB for ES
 	{
