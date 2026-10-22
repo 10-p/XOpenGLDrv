@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 #if XOPENGL_TRANSCODE
 #include "astcenc.h"
+unsigned int XOpenGLASTCThreads(); // ASTCEncoder.cpp
 #endif
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -333,12 +334,13 @@ void UXOpenGLRenderDevice::CheckExtensions()
         {
             astcenc_config Config;
             if (astcenc_config_init(ASTCENC_PRF_LDR, 4, 4, 1, ASTCENC_PRE_FASTEST, 0, &Config) != ASTCENC_SUCCESS
-                || astcenc_context_alloc(&Config, 1, &ASTCContext, NULL) != ASTCENC_SUCCESS)
+                || astcenc_context_alloc(&Config, XOpenGLASTCThreads(), &ASTCContext, NULL) != ASTCENC_SUCCESS)
             {
                 GWarn->Logf(TEXT("XOpenGL: the ASTC encoder did not start"));
                 ASTCContext = NULL;
             }
         }
+        SupportsASTCDecodeMode = GLExtensionSupported(TEXT("GL_EXT_texture_compression_astc_decode_mode"));
         if (ASTC && ASTCContext)
             DXT1Transcode = DXT1_ASTC4x4;
         else if (ETC2)

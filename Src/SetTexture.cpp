@@ -282,6 +282,7 @@ static void XOpenGLDecodeDXT1Image(const BYTE* Src, INT W, INT H, DWORD* Dst)
 #include "decompress.h" // DXT block decoder from gl4es (Benjamin Dobell, Matthäus G. Chajdas; MIT)
 #include "ProcessRGB.hpp" // etcpak (Bartosz Taudul; BSD-3-Clause)
 #include "astcenc.h" // ARM astc-encoder (Apache-2.0)
+bool XOpenGLEncodeASTC(astcenc_context* Context, void* Pixels, unsigned int Width, unsigned int Height, uint8_t* Out, size_t Size); // ASTCEncoder.cpp
 // Transcodes a DXT1 mip for a GPU without S3TC (UXOpenGLRenderDevice::DXT1Transcode): the gl4es decoder, then
 // astcenc to ASTC 4x4 or etcpak to ETC2 RGB. Work holds the block-padded decode (((W+3)&~3) * ((H+3)&~3)
 // DWORDs) followed by the blocks, which are returned with their size in Size; NULL when the encoder fails.
@@ -300,13 +301,8 @@ static BYTE* XOpenGLTranscodeDXT1(const BYTE* Src, INT W, INT H, BYTE* Work, BYT
 		}
 	if (Transcode == UXOpenGLRenderDevice::DXT1_ASTC4x4)
 	{
-		void* Slice = Pixels;
-		astcenc_image Image = { (unsigned int)PW, (unsigned int)PH, 1, ASTCENC_TYPE_U8, &Slice };
-		const astcenc_swizzle Swizzle = { ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A };
 		Size = (PW / 4) * (PH / 4) * 16;
-		const astcenc_error Error = astcenc_compress_image(ASTCContext, &Image, &Swizzle, Blocks, (size_t)Size, 0);
-		astcenc_compress_reset(ASTCContext);
-		return Error == ASTCENC_SUCCESS ? Blocks : NULL;
+		return XOpenGLEncodeASTC(ASTCContext, Pixels, (unsigned int)PW, (unsigned int)PH, Blocks, (size_t)Size) ? Blocks : NULL;
 	}
 	// The decoder writes red in the low byte; etcpak's ETC encoders read blue there.
 	for (INT i = 0; i < PW * PH; i++)
@@ -828,6 +824,13 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, Compose);
 	}
 	unguard;
+
+#if XOPENGL_TRANSCODE
+	// DXT data loses nothing at ASTC's 8-bit decode precision, which samples faster than the default 16-bit.
+	if (IsFirstUpload && !IsBindlessTexture && !UnsupportedTexture && SupportsASTCDecodeMode
+		&& DXT1Transcode == DXT1_ASTC4x4 && (BYTE)Info.Format == TEXF_BC1)
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_ASTC_DECODE_PRECISION_EXT, GL_RGBA8);
+#endif
 
 	// Set max level.
 	if (IsFirstUpload || Bind->MaxLevel != MaxLevel)

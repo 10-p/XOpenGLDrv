@@ -677,6 +677,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	// Without S3TC, the format DXT1 mips are transcoded to at upload (XOPENGL_TRANSCODE builds).
 	enum EDXT1Transcode { DXT1_None, DXT1_ASTC4x4, DXT1_ETC2 };
 	BYTE	DXT1Transcode;
+	bool	SupportsASTCDecodeMode;	// GL_EXT_texture_compression_astc_decode_mode
 	astcenc_context* ASTCContext;
 	bool	SupportsSSBO;
 	bool	SupportsGLSLInt64;

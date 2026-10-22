@@ -453,6 +453,7 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	SupportsClipDistance = true;
 	SupportsS3TC = true; //assume nowadays every hardware setup supports this, but its checked later anyway.
 	DXT1Transcode = DXT1_None;
+	SupportsASTCDecodeMode = false;
 	ASTCContext = NULL;
 
 	if (ParallaxVersion != Parallax_Disabled) // Not sure if Parallax makes much sense at all without BumpMaps, but for now we need it enabled to have the necessary informations from the vertex shader.
