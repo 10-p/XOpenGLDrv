@@ -2285,7 +2285,14 @@ void UXOpenGLRenderDevice::ReadPixels(FColor* Pixels)
 void UXOpenGLRenderDevice::PrecacheTexture(FTextureInfo& Info, DWORD PolyFlags)
 {
 	guard(UXOpenGLRenderDevice::PrecacheTexture);
+	// The engine precaches between frames, with no program active, where SetTexture uploads nothing: the tile
+	// program is taken for the upload.
+	const bool NoProgram = ActiveProgram <= No_Prog;
+	if (NoProgram)
+		SetProgram(Tile_Prog);
 	SetTexture(DiffuseTextureIndex, Info, PolyFlags, 0.0);
+	if (NoProgram)
+		SetProgram(No_Prog);
 	unguard;
 }
 
