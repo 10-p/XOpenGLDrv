@@ -278,6 +278,45 @@ static void XOpenGLDecodeDXT1Image(const BYTE* Src, INT W, INT H, DWORD* Dst)
 }
 #endif
 
+#if XOPENGL_TRANSCODE
+#include "decompress.h" // DXT block decoder from gl4es (Benjamin Dobell, Matthäus G. Chajdas; MIT)
+#include "ProcessRGB.hpp" // etcpak (Bartosz Taudul; BSD-3-Clause)
+#include "astcenc.h" // ARM astc-encoder (Apache-2.0)
+// Transcodes a DXT1 mip for a GPU without S3TC (UXOpenGLRenderDevice::DXT1Transcode): the gl4es decoder, then
+// astcenc to ASTC 4x4 or etcpak to ETC2 RGB. Work holds the block-padded decode (((W+3)&~3) * ((H+3)&~3)
+// DWORDs) followed by the blocks, which are returned with their size in Size; NULL when the encoder fails.
+static BYTE* XOpenGLTranscodeDXT1(const BYTE* Src, INT W, INT H, BYTE* Work, BYTE Transcode, astcenc_context* ASTCContext, GLsizei& Size)
+{
+	const INT PW = (W + 3) & ~3;
+	const INT PH = (H + 3) & ~3;
+	DWORD* Pixels = (DWORD*)Work;
+	BYTE* Blocks = Work + (size_t)PW * PH * 4;
+	int SimpleAlpha = 0, ComplexAlpha = 0;
+	for (INT y = 0; y < PH; y += 4)
+		for (INT x = 0; x < PW; x += 4)
+		{
+			DecompressBlockDXT1((uint32_t)x, (uint32_t)y, (uint32_t)PW, Src, 0, &SimpleAlpha, &ComplexAlpha, (uint32_t*)Pixels);
+			Src += 8;
+		}
+	if (Transcode == UXOpenGLRenderDevice::DXT1_ASTC4x4)
+	{
+		void* Slice = Pixels;
+		astcenc_image Image = { (unsigned int)PW, (unsigned int)PH, 1, ASTCENC_TYPE_U8, &Slice };
+		const astcenc_swizzle Swizzle = { ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A };
+		Size = (PW / 4) * (PH / 4) * 16;
+		const astcenc_error Error = astcenc_compress_image(ASTCContext, &Image, &Swizzle, Blocks, (size_t)Size, 0);
+		astcenc_compress_reset(ASTCContext);
+		return Error == ASTCENC_SUCCESS ? Blocks : NULL;
+	}
+	// The decoder writes red in the low byte; etcpak's ETC encoders read blue there.
+	for (INT i = 0; i < PW * PH; i++)
+		Pixels[i] = (Pixels[i] & 0xFF00FF00) | ((Pixels[i] & 0xFF) << 16) | ((Pixels[i] >> 16) & 0xFF);
+	CompressEtc2Rgb((const uint32_t*)Pixels, (uint64_t*)Blocks, (uint32_t)((PW / 4) * (PH / 4)), (size_t)PW, true);
+	Size = (PW / 4) * (PH / 4) * 8;
+	return Blocks;
+}
+#endif
+
 BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bind, DWORD PolyFlags, BOOL IsFirstUpload, BOOL IsBindlessTexture, BOOL PartialUpload, INT U, INT V, INT UL, INT VL, BYTE* TextureData)
 {
 	bool UnsupportedTexture = false;
@@ -339,13 +378,13 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 	GLuint SourceFormat = GL_RGBA;
 	GLuint SourceType   = GL_UNSIGNED_BYTE;
 
-	if (!SupportsS3TC && FIsCompressedFormat(Info.Format))
+	if (!SupportsS3TC && FIsCompressedFormat(Info.Format) && !(DXT1Transcode != DXT1_None && (BYTE)Info.Format == TEXF_BC1))
 		UnsupportedTexture = true;
 
 #if ENGINE_VERSION==400
 	// On WebGL, DXT1 whose base size is not a multiple of 4 is decoded to RGBA8 (XOpenGLDecodeDXT1Image);
 	// block-aligned DXT1 uploads compressed.
-	const bool DecodeDXT1 = IsWebGL() && !UnsupportedTexture && (BYTE)Info.Format == TEXF_BC1 &&
+	const bool DecodeDXT1 = IsWebGL() && DXT1Transcode == DXT1_None && !UnsupportedTexture && (BYTE)Info.Format == TEXF_BC1 &&
 		((Info.Mips[Bind->BaseMip]->USize & 3) || (Info.Mips[Bind->BaseMip]->VSize & 3));
 #else
 	const bool DecodeDXT1 = false;
@@ -417,6 +456,17 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 			break;
 			// S3TC -- Ubiquitous Extension.
 		case TEXF_BC1:
+#if XOPENGL_TRANSCODE
+			if (DXT1Transcode != DXT1_None)
+			{
+				// Compose holds a mip's block-padded decode and its blocks (XOpenGLTranscodeDXT1): 4 + 1 bytes a texel.
+				MinComposeSize = ((Info.Mips[Bind->BaseMip]->USize + 3) & ~3) * ((Info.Mips[Bind->BaseMip]->VSize + 3) & ~3) * 5;
+				if (DXT1Transcode == DXT1_ASTC4x4)
+					InternalFormat = UnpackSRGB ? GL_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR : GL_COMPRESSED_RGBA_ASTC_4x4_KHR;
+				else InternalFormat = UnpackSRGB ? GL_COMPRESSED_SRGB8_ETC2 : GL_COMPRESSED_RGB8_ETC2;
+				break;
+			}
+#endif
 #if ENGINE_VERSION==400
 			if (DecodeDXT1)
 			{
@@ -637,6 +687,18 @@ BOOL UXOpenGLRenderDevice::UploadTexture(FTextureInfo& Info, FCachedTexture* Bin
 
 					// S3TC -- Ubiquitous Extension. Was TEXF_DXTx before
 				case TEXF_BC1:
+#if XOPENGL_TRANSCODE
+					if (DXT1Transcode != DXT1_None)
+					{
+						ImgSrc = XOpenGLTranscodeDXT1(Mip->DataPtr, USize, VSize, Compose, DXT1Transcode, ASTCContext, CompImageSize);
+						if (!ImgSrc)
+						{
+							GWarn->Logf(TEXT("XOpenGL: transcoding %s failed"), Info.Texture->GetFullName());
+							ImgSrc = Compose; // the decode: wrong, but in bounds
+						}
+						break;
+					}
+#endif
 #if ENGINE_VERSION==400
 					if (DecodeDXT1)
 					{

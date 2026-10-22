@@ -8,6 +8,9 @@
 
 // Include GLM
 #include <glm/glm.hpp>
+#if XOPENGL_TRANSCODE
+#include "astcenc.h"
+#endif
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -309,8 +312,45 @@ void UXOpenGLRenderDevice::CheckExtensions()
 		GWarn->Logf(TEXT("XOpenGL: GL_EXT_texture_compression_s3tc extension not found!"));
         SupportsS3TC = false;
 	}
-    // The engine hands a device compressed mips only when it says it takes them: without S3TC it gets the P8 ones.
-    SupportsTC = SupportsS3TC;
+#if XOPENGL_TRANSCODE
+    // Without S3TC, DXT1 mips are transcoded at upload: to ASTC 4x4 (astcenc; 8 bits a texel, near lossless from
+    // DXT1) where the context has ASTC, else to ETC2 RGB (etcpak; 4 bits a texel). With neither, the engine keeps
+    // the P8 mips. The choice follows the context's formats only, on every platform.
+    DXT1Transcode = DXT1_None;
+    if (!SupportsS3TC)
+    {
+        const bool ASTC = GLExtensionSupported(TEXT("GL_KHR_texture_compression_astc_ldr"))
+            || GLExtensionSupported(TEXT("WEBGL_compressed_texture_astc"))
+            || GLExtensionSupported(TEXT("GL_WEBGL_compressed_texture_astc"));
+        // ETC2: core in OpenGL ES 3.0 and in desktop GL with ARB_ES3_compatibility; WebGL names it as an extension.
+#ifdef __EMSCRIPTEN__
+        const bool ETC2 = GLExtensionSupported(TEXT("WEBGL_compressed_texture_etc"))
+            || GLExtensionSupported(TEXT("GL_WEBGL_compressed_texture_etc"));
+#else
+        const bool ETC2 = IsES() || GLExtensionSupported(TEXT("GL_ARB_ES3_compatibility"));
+#endif
+        if (ASTC && !ASTCContext)
+        {
+            astcenc_config Config;
+            if (astcenc_config_init(ASTCENC_PRF_LDR, 4, 4, 1, ASTCENC_PRE_FASTEST, 0, &Config) != ASTCENC_SUCCESS
+                || astcenc_context_alloc(&Config, 1, &ASTCContext, NULL) != ASTCENC_SUCCESS)
+            {
+                GWarn->Logf(TEXT("XOpenGL: the ASTC encoder did not start"));
+                ASTCContext = NULL;
+            }
+        }
+        if (ASTC && ASTCContext)
+            DXT1Transcode = DXT1_ASTC4x4;
+        else if (ETC2)
+            DXT1Transcode = DXT1_ETC2;
+        debugf(NAME_Init, TEXT("XOpenGL: no S3TC: DXT1 textures %s"),
+            DXT1Transcode == DXT1_ASTC4x4 ? TEXT("are transcoded to ASTC 4x4")
+            : DXT1Transcode == DXT1_ETC2 ? TEXT("are transcoded to ETC2") : TEXT("use their P8 mips (no ASTC or ETC2)"));
+    }
+#endif
+    // The engine hands a device compressed mips only when it says it takes them: with neither S3TC nor a
+    // transcode it gets the P8 ones.
+    SupportsTC = SupportsS3TC || DXT1Transcode != DXT1_None;
 
     if (UseSRGBTextures && !GLExtensionSupported(TEXT("GL_EXT_texture_sRGB")) && !GLExtensionSupported(TEXT("GL_EXT_sRGB"))) //GL_EXT_sRGB for ES
 	{
