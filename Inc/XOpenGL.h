@@ -425,6 +425,8 @@ inline glm::vec4 FPlaneToVec4(FPlane Plane)
 #define END_LINE "\n"
 #endif
 
+struct astcenc_context; // ARM astc-encoder (XOPENGL_TRANSCODE builds)
+
 // This is Higor's FShaderWriter. We could (and should? move it elsewhere
 // because OpenGLDrv also uses it). Renamed to FShaderWriterX (for now) because
 // it clashes with FShaderWriter in statically linked builds.
@@ -690,6 +692,11 @@ class UXOpenGLRenderDevice : public URenderDevice
 	bool	SupportsSwapControl;
 	bool	SupportsSwapControlTear;
 	bool	SupportsS3TC;
+	// Without S3TC, the format DXT1 mips are transcoded to at upload (XOPENGL_TRANSCODE builds).
+	enum EDXT1Transcode { DXT1_None, DXT1_ASTC4x4, DXT1_ETC2 };
+	BYTE	DXT1Transcode;
+	bool	SupportsASTCDecodeMode;	// GL_EXT_texture_compression_astc_decode_mode
+	astcenc_context* ASTCContext;
 	bool	SupportsSSBO;
 	bool	SupportsGLSLInt64;
 	bool	SupportsClipDistance;

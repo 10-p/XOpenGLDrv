@@ -24,6 +24,9 @@
 // clock() declaration UE1's clock(Timer) macro would break.
 #include <emscripten/html5_webgl.h>
 #endif
+#if XOPENGL_TRANSCODE
+#include "astcenc.h" // ARM astc-encoder (Apache-2.0)
+#endif
 
 // Include GLM
 #include <glm/glm.hpp>
@@ -449,6 +452,9 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 	SupportsSwapControlTear = false;
 	SupportsClipDistance = true;
 	SupportsS3TC = true; //assume nowadays every hardware setup supports this, but its checked later anyway.
+	DXT1Transcode = DXT1_None;
+	SupportsASTCDecodeMode = false;
+	ASTCContext = NULL;
 
 	if (ParallaxVersion != Parallax_Disabled) // Not sure if Parallax makes much sense at all without BumpMaps, but for now we need it enabled to have the necessary informations from the vertex shader.
         BumpMaps = 1;
@@ -2280,7 +2286,14 @@ void UXOpenGLRenderDevice::ReadPixels(FColor* Pixels)
 void UXOpenGLRenderDevice::PrecacheTexture(FTextureInfo& Info, DWORD PolyFlags)
 {
 	guard(UXOpenGLRenderDevice::PrecacheTexture);
+	// The engine precaches between frames, with no program active, where SetTexture uploads nothing: the tile
+	// program is taken for the upload.
+	const bool NoProgram = ActiveProgram <= No_Prog;
+	if (NoProgram)
+		SetProgram(Tile_Prog);
 	SetTexture(DiffuseTextureIndex, Info, PolyFlags, 0.0);
+	if (NoProgram)
+		SetProgram(No_Prog);
 	unguard;
 }
 
@@ -2302,6 +2315,13 @@ void UXOpenGLRenderDevice::Exit()
 		Flush(0);
 
 	ResetShaders();
+#if XOPENGL_TRANSCODE
+	if (ASTCContext)
+	{
+		astcenc_context_free(ASTCContext);
+		ASTCContext = NULL;
+	}
+#endif
 	if (AllContexts.Num() == 0 && SharedBindMap)
 	{
 		delete SharedBindMap;
