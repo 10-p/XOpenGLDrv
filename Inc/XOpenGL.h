@@ -1484,6 +1484,11 @@ class UXOpenGLRenderDevice : public URenderDevice
 #if MACOSX || __LINUX_ARM__ || __LINUX_ARM64__
 			Rotate = true;
 #endif
+			// The same on an OpenGL ES / WebGL context: a glBufferSubData into a buffer that queued draws still read
+			// makes those drivers copy the buffer or wait.
+			const bool ReplaceWhole = RenDev->IsES();
+			if (ReplaceWhole)
+				Rotate = true;
 
 			if (Rotate)
 			{
@@ -1495,12 +1500,12 @@ class UXOpenGLRenderDevice : public URenderDevice
 
 			if (HavePendingData)
 			{
-				VertBuffer.BufferData(false);
+				VertBuffer.BufferData(ReplaceWhole);
 
 				// We might have to rebind the parameters buffer here because things like PushClipPlane and
 				// PopClipPlane can temporarily bind another UBO.
 				ParametersBuffer.Bind();
-				ParametersBuffer.BufferData(false);
+				ParametersBuffer.BufferData(ReplaceWhole);
 
 				// Issue the draw call
 				DrawBuffer.Draw(DrawMode, RenDev);
