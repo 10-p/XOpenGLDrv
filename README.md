@@ -53,8 +53,9 @@ The branch adds:
   engine hands the paletted mips instead (`SupportsTC` follows the S3TC check).
 * **Precaching uploads**: `PrecacheTexture` binds the tile program, so textures (and their transcode) are
   uploaded at level load instead of on first view.
-* **Whole-buffer batches on ES**: on an OpenGL ES or WebGL context each batch fills the vertex and parameter
-  buffers whole and rotates them after the flush, as the macOS and ARM Linux builds do.
+* **Whole-buffer batches on ES**: on an OpenGL ES context (not on the web) each batch fills the vertex and
+  parameter buffers whole and rotates them after the flush, as the macOS and ARM Linux builds do. WebGL refuses a
+  draw whose uniform buffer is smaller than its block, so the web build keeps the partial updates.
 * **The light block fits the GPU**: the `LightInfo` uniform block holds as many lights as
   `GL_MAX_UNIFORM_BLOCK_SIZE` allows (at most `MAX_LIGHTS`), its arrays packed before the upload.
 * **Strict-driver robustness** (AMD/Mesa, ANGLE): uniform blocks match their std140 size, an out-of-range

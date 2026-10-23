@@ -1509,9 +1509,15 @@ class UXOpenGLRenderDevice : public URenderDevice
 #if MACOSX || __LINUX_ARM__ || __LINUX_ARM64__
 			Rotate = true;
 #endif
-			// The same on an OpenGL ES / WebGL context: a glBufferSubData into a buffer that queued draws still read
-			// makes those drivers copy the buffer or wait.
+#ifdef __EMSCRIPTEN__
+			// Not on WebGL: it refuses a draw whose uniform buffer is smaller than the block, and a whole fill sizes the
+			// parameters buffer to the batch.
+			const bool ReplaceWhole = false;
+#else
+			// The same on an OpenGL ES context: a glBufferSubData into a buffer that queued draws still read makes
+			// those drivers copy the buffer or wait.
 			const bool ReplaceWhole = RenDev->IsES();
+#endif
 			if (ReplaceWhole)
 				Rotate = true;
 
