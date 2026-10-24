@@ -626,8 +626,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 	SDL_Window* Window;
 #endif
 	static INT NumDevices;
-	// The extension list, the capability lines and the shader-compile messages: every one from the process's
-	// first device, from a later device only with -UFRONTLOG.
+	// The device information (GL strings, extension list, capability lines, VSync state, flushes, shader-compile
+	// messages) is logged by the process's first device, by a later device only with -UFRONTLOG.
 	static UBOOL DeviceInfoLogged;
 #if XOGL_UE1_V4XX
 	inline bool LogDeviceInfo() const { return !DeviceInfoLogged || GUfrontLog; }

@@ -978,10 +978,13 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 #endif
 
 	Description = appFromAnsi((const ANSICHAR *)glGetString(GL_RENDERER));
-	debugf(NAME_Init, TEXT("GL_VENDOR     : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_VENDOR)));
-	debugf(NAME_Init, TEXT("GL_RENDERER   : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_RENDERER)));
-	debugf(NAME_Init, TEXT("GL_VERSION    : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_VERSION)));
-	debugf(NAME_Init, TEXT("GL_SHADING_LANGUAGE_VERSION    : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
+	if (LogDeviceInfo())
+	{
+		debugf(NAME_Init, TEXT("GL_VENDOR     : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_VENDOR)));
+		debugf(NAME_Init, TEXT("GL_RENDERER   : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_RENDERER)));
+		debugf(NAME_Init, TEXT("GL_VERSION    : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_VERSION)));
+		debugf(NAME_Init, TEXT("GL_SHADING_LANGUAGE_VERSION    : %s"), appFromAnsi((const ANSICHAR *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
+	}
 
 	AllExtensions = TEXT("");
 	glGetIntegerv(GL_NUM_EXTENSIONS, &NumberOfExtensions);
@@ -1287,7 +1290,7 @@ void UXOpenGLRenderDevice::SwapControl()
 			debugf(NAME_Init, TEXT("XOpenGL: Setting VSync off has failed."));
 		else
         {
-            debugf(NAME_Init, TEXT("XOpenGL: VSync Off"));
+            if (LogDeviceInfo()) debugf(NAME_Init, TEXT("XOpenGL: VSync Off"));
         }
 		break;
 	case VS_On:
@@ -1295,7 +1298,7 @@ void UXOpenGLRenderDevice::SwapControl()
 			debugf(NAME_Init, TEXT("XOpenGL: Setting VSync on has failed."));
 		else
         {
-            debugf(NAME_Init, TEXT("XOpenGL: VSync On"));
+            if (LogDeviceInfo()) debugf(NAME_Init, TEXT("XOpenGL: VSync On"));
         }
 		break;
 	case VS_Adaptive:
@@ -1307,7 +1310,7 @@ void UXOpenGLRenderDevice::SwapControl()
         }
 		else
         {
-            debugf(NAME_Init, TEXT("XOpenGL: VSync Adaptive"));
+            if (LogDeviceInfo()) debugf(NAME_Init, TEXT("XOpenGL: VSync Adaptive"));
         }
 		break;
 	default:
@@ -1315,7 +1318,7 @@ void UXOpenGLRenderDevice::SwapControl()
 			debugf(NAME_Init, TEXT("XOpenGL: Setting default VSync off has failed."));
 		else
         {
-            debugf(NAME_Init, TEXT("XOpenGL: VSync Off (default)"));
+            if (LogDeviceInfo()) debugf(NAME_Init, TEXT("XOpenGL: VSync Off (default)"));
         }
 	}
 	unguard;
@@ -1408,7 +1411,8 @@ void UXOpenGLRenderDevice::Flush(UBOOL AllowPrecache)
 {
 	guard(UXOpenGLRenderDevice::Flush);
 
-	debugf(NAME_DevGraphics, TEXT("XOpenGL: Flush"));
+	if (LogDeviceInfo())
+		debugf(NAME_DevGraphics, TEXT("XOpenGL: Flush"));
 
 	MakeCurrent();
 
