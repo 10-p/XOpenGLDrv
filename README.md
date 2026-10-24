@@ -62,6 +62,9 @@ The branch adds:
   `GL_MAX_UNIFORM_BLOCK_SIZE` is clamped, parameter arrays have at least one element, an unused fog block
   is not declared, and ES shaders use `highp`.
 * **Screenshots with antialiasing**: with `UseAA`, `ReadPixels` reads the resolved framebuffer.
+* **Device information once a process**: on v4xx the extension list, the capability lines and the shader-compile
+  messages come from the process's first device; a later one (the engine re-creates the device on a fullscreen
+  switch) logs them only with the engine's `-UFRONTLOG`. Errors and warnings are always logged.
 * **`SDLBUILD` selects the SDL path**: MinGW Windows builds take the SDL window and context path like
   Linux and the web; builds without `SDLBUILD` (upstream MSVC) keep the driver's own WGL window.
 

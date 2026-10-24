@@ -58,7 +58,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
     {
         if (GLExtensionSupported(TEXT("GL_EXT_texture_storage"))  && GenerateMipMaps)
         {
-            debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_EXT_texture_storage found. GenerateMipMaps enabled."));
+            if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_EXT_texture_storage found. GenerateMipMaps enabled."));
         }
         else
         {
@@ -71,7 +71,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
     {
         if (GLExtensionSupported(TEXT("GL_IMG_bindless_texture")))
         {
-            debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_IMG_bindless_texture found. UseBindlessTextures enabled."));
+            if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_IMG_bindless_texture found. UseBindlessTextures enabled."));
         }
         else
         {
@@ -82,7 +82,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
 	//usually we would assume this extension to be supported in general, but it seems not every driver really does in ES mode. (RasPi, AMD Radeon R5 Graphics, ???)
     if (GLExtensionSupported(TEXT("GL_EXT_clip_cull_distance")) || GLExtensionSupported(TEXT("GL_ARB_cull_distance")))
     {
-        debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_cull_distance / GL_EXT_clip_cull_distance found."));
+        if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_cull_distance / GL_EXT_clip_cull_distance found."));
         if (IsES())
         {
             // GLSL ES forbids redeclaring gl_ClipDistance, and a program that writes the extension's own sized
@@ -104,7 +104,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
     {
         if (GLExtensionSupported(TEXT("GL_ARB_buffer_storage")))
         {
-            debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_buffer_storage found. UsePersistentBuffers enabled."));
+            if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_buffer_storage found. UsePersistentBuffers enabled."));
         }
         else
         {
@@ -117,7 +117,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
     {
         if (GLExtensionSupported(TEXT("GL_ARB_invalidate_subdata")))
         {
-            debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_invalidate_subdata found. UseBufferInvalidation enabled."));
+            if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_invalidate_subdata found. UseBufferInvalidation enabled."));
         }
         else
         {
@@ -130,7 +130,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
     {
         if (GLExtensionSupported(TEXT("GL_ARB_texture_storage")))
         {
-            debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_texture_storage found. GenerateMipMaps enabled."));
+            if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_texture_storage found. GenerateMipMaps enabled."));
         }
         else
         {
@@ -143,7 +143,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
     {
         if (GLExtensionSupported(TEXT("GL_ARB_bindless_texture")))
         {
-            debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_bindless_texture found. UseBindlessTextures enabled."));
+            if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_bindless_texture found. UseBindlessTextures enabled."));
         }
         else
         {
@@ -165,7 +165,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
     //usually we would assume this extension to be supported in general, but it seems not every driver really does in ES mode. (RasPi, AMD Radeon R5 Graphics, ???)
     if (GLExtensionSupported(TEXT("GL_EXT_clip_cull_distance")) || GLExtensionSupported(TEXT("GL_ARB_cull_distance")))
     {
-        debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_cull_distance / GL_EXT_clip_cull_distance found."));
+        if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_cull_distance / GL_EXT_clip_cull_distance found."));
         if (IsES())
         {
             // GLSL ES forbids redeclaring gl_ClipDistance, and a program that writes the extension's own sized
@@ -182,14 +182,14 @@ void UXOpenGLRenderDevice::CheckExtensions()
 
     if (GLExtensionSupported(TEXT("GL_NVX_gpu_memory_info")))
     {
-        debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_NVX_gpu_memory_info found."));
+        if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_NVX_gpu_memory_info found."));
         SupportsNVIDIAMemoryInfo = true;
     }
     else SupportsNVIDIAMemoryInfo = false;
 
     if (GLExtensionSupported(TEXT("GL_ATI_meminfo")))
     {
-        debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ATI_meminfo found."));
+        if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ATI_meminfo found."));
         SupportsAMDMemoryInfo = true;
     }
     else SupportsAMDMemoryInfo = false;
@@ -198,7 +198,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
     {
         if (GLExtensionSupported(TEXT("GL_ARB_shader_draw_parameters")) && SupportsSSBO)
         {
-            debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_shader_draw_parameters and GL_ARB_shader_storage_buffer_object found. UseShaderDrawParameters enabled."));
+            if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_ARB_shader_draw_parameters and GL_ARB_shader_storage_buffer_object found. UseShaderDrawParameters enabled."));
         }
         else
         {
@@ -212,7 +212,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
 #if !SDLBUILD // not worth the hassle with GLX, let SDL check if it works for now.
     if (GLExtensionSupported(TEXT("WGL_EXT_swap_control")))
     {
-        debugf(NAME_DevGraphics, TEXT("XOpenGL: WGL_EXT_swap_control found."));
+        if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: WGL_EXT_swap_control found."));
         SupportsSwapControl = true;
     }
     else
@@ -223,7 +223,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
 
     if (GLExtensionSupported(TEXT("WGL_EXT_swap_control_tear")))
     {
-        debugf(NAME_DevGraphics, TEXT("XOpenGL: WGL_EXT_swap_control_tear found."));
+        if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: WGL_EXT_swap_control_tear found."));
         SupportsSwapControlTear = true;
     }
     else
@@ -238,29 +238,29 @@ void UXOpenGLRenderDevice::CheckExtensions()
     SDL_GL_GetAttribute(SDL_GL_GREEN_SIZE, &g);
     SDL_GL_GetAttribute(SDL_GL_BLUE_SIZE, &b);
     SDL_GL_GetAttribute(SDL_GL_ALPHA_SIZE, &a);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: SDL_GL RED_SIZE:%i GREEN_SIZE:%i BLUE_SIZE:%i ALPHA_SIZE:%i"),r,g,b,a);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: SDL_GL RED_SIZE:%i GREEN_SIZE:%i BLUE_SIZE:%i ALPHA_SIZE:%i"),r,g,b,a);
 
     SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &db);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: SDL_GL_DEPTH_SIZE DesiredDepthBits: %i, provided: %i"),DesiredDepthBits, db);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: SDL_GL_DEPTH_SIZE DesiredDepthBits: %i, provided: %i"),DesiredDepthBits, db);
 
     if (UseSRGBTextures)
     {
         SDL_GL_GetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, &srgb);
-        debugf(NAME_DevGraphics, TEXT("XOpenGL: SDL_GL_FRAMEBUFFER_SRGB_CAPABLE: %i"),srgb);
+        if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: SDL_GL_FRAMEBUFFER_SRGB_CAPABLE: %i"),srgb);
     }
 # endif
 
     INT MaxTextureImageUnits = 0;
     glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &MaxTextureImageUnits);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxTextureImageUnits: %i"), MaxTextureImageUnits);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxTextureImageUnits: %i"), MaxTextureImageUnits);
 
     INT MaxVertexTextureImageUnits = 0;
     glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &MaxVertexTextureImageUnits);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxVertexTextureImageUnits: %i"), MaxVertexTextureImageUnits);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxVertexTextureImageUnits: %i"), MaxVertexTextureImageUnits);
 
     INT MaxImageUnits = 0;
     glGetIntegerv(GL_MAX_IMAGE_UNITS, &MaxImageUnits);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxImageUnits: %i"), MaxImageUnits);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxImageUnits: %i"), MaxImageUnits);
 #endif
 
     if (GLExtensionSupported(TEXT("GL_KHR_debug")) && UseOpenGLDebug)
@@ -275,25 +275,25 @@ void UXOpenGLRenderDevice::CheckExtensions()
 
 	INT MaxCombinedTextureImageUnits = 0;
 	glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &MaxCombinedTextureImageUnits);
-	debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxCombinedTextureImageUnits: %i"), MaxCombinedTextureImageUnits);
+	if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxCombinedTextureImageUnits: %i"), MaxCombinedTextureImageUnits);
 
 	INT MaxElementsVertices = 0;
 	glGetIntegerv(GL_MAX_ELEMENTS_VERTICES, &MaxElementsVertices);
-	debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxElementsVertices: %i"), MaxElementsVertices);
+	if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxElementsVertices: %i"), MaxElementsVertices);
 
 	INT MaxUniformBufferBindings = 0;
 	glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &MaxUniformBufferBindings);
-	debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxUniformBufferBindings: %i"), MaxUniformBufferBindings);
+	if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxUniformBufferBindings: %i"), MaxUniformBufferBindings);
 
 	if (OpenGLVersion == GL_Core)
 	{
 		INT MaxDualSourceDrawBuffers;
 		glGetIntegerv(GL_MAX_DUAL_SOURCE_DRAW_BUFFERS, &MaxDualSourceDrawBuffers);
-		debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxDualSourceDrawBuffers: %i"), MaxDualSourceDrawBuffers);
+		if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxDualSourceDrawBuffers: %i"), MaxDualSourceDrawBuffers);
 	}
 
 	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &MaxTextureSize);
-	debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxTextureSize: %i"), MaxTextureSize);
+	if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxTextureSize: %i"), MaxTextureSize);
 
 	if (!GLExtensionSupported(TEXT("GL_EXT_texture_lod_bias")))
 	{
@@ -373,7 +373,7 @@ void UXOpenGLRenderDevice::CheckExtensions()
 		if (tmp < 0.f)
 			tmp = 0.f; // seems in Linux ARM with ODROID-XU4 the extension check fails. Better safe than sorry.
 
-		debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxAnisotropy = (%f/%f)"), MaxAnisotropy, tmp);
+		if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxAnisotropy = (%f/%f)"), MaxAnisotropy, tmp);
 
 		if (MaxAnisotropy > tmp)
 			MaxAnisotropy = tmp;
@@ -402,29 +402,29 @@ void UXOpenGLRenderDevice::CheckExtensions()
         INT AABuffers = 0;
         SDL_GL_GetAttribute( SDL_GL_MULTISAMPLEBUFFERS, &AABuffers );
         SDL_GL_GetAttribute( SDL_GL_MULTISAMPLESAMPLES, &NumberOfAASamples );
-        debugf(NAME_DevGraphics, TEXT("XOpenGL: SDL_GL_MULTISAMPLEBUFFERS: %i, requested NumAASamples: %i, provided NumAASamples/MaxSamples: (%i/%i)"), AABuffers, NumAASamples, NumberOfAASamples, MaxAASamples);
+        if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: SDL_GL_MULTISAMPLEBUFFERS: %i, requested NumAASamples: %i, provided NumAASamples/MaxSamples: (%i/%i)"), AABuffers, NumAASamples, NumberOfAASamples, MaxAASamples);
 #else
         glGetIntegerv(GL_MAX_SAMPLES, &MaxAASamples);
 		glGetIntegerv(GL_SAMPLES, &NumberOfAASamples);
-		debugf(NAME_DevGraphics, TEXT("XOpenGL: NumAASamples: (%i/%i)"), NumberOfAASamples, MaxAASamples);
+		if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: NumAASamples: (%i/%i)"), NumberOfAASamples, MaxAASamples);
 #endif
 	}
 
 	if (GenerateMipMaps && !UsePrecache)
 	{
-		debugf(NAME_DevGraphics, TEXT("XOpenGL: Enabling UsePrecache for GenerateMipMaps."));
+		if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: Enabling UsePrecache for GenerateMipMaps."));
 		UsePrecache = 1;
 	}
 
     // Extensions
     NumberOfExtensions = 0;
     glGetIntegerv(GL_NUM_EXTENSIONS, &NumberOfExtensions);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_NUM_EXTENSIONS found: %i"), NumberOfExtensions);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_NUM_EXTENSIONS found: %i"), NumberOfExtensions);
 
     // Clipping Planes
     MaxClippingPlanes = 0;
     glGetIntegerv(GL_MAX_CLIP_DISTANCES, &MaxClippingPlanes);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_MAX_CLIP_DISTANCES found: %i"), MaxClippingPlanes);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: GL_MAX_CLIP_DISTANCES found: %i"), MaxClippingPlanes);
 
     MaxUniformBlockSize = 0;
     glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &MaxUniformBlockSize);
@@ -436,22 +436,22 @@ void UXOpenGLRenderDevice::CheckExtensions()
         debugf(NAME_Warning, TEXT("XOpenGL: driver reported bogus GL_MAX_UNIFORM_BLOCK_SIZE %i; clamping to 65536 (AMD/Mesa driver bug)"), MaxUniformBlockSize);
         MaxUniformBlockSize = 65536;
     }
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxUniformBlockSize: %i"), MaxUniformBlockSize);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxUniformBlockSize: %i"), MaxUniformBlockSize);
     // LightInfo is six std140 vec4 arrays of LightSlots entries; a GPU at the ES 3 minimum (16 KB) fits 170 lights.
     LightSlots = Clamp<INT>(MaxUniformBlockSize / (6 * 16), 1, MAX_LIGHTS);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: LightSlots: %i"), LightSlots);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: LightSlots: %i"), LightSlots);
 
     INT MaxOutputComponents = 0;
     glGetIntegerv(GL_MAX_VERTEX_OUTPUT_COMPONENTS, &MaxOutputComponents);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxVertexOutputComponents: %i"), MaxOutputComponents);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxVertexOutputComponents: %i"), MaxOutputComponents);
 
     INT MaxVaryingComponents = 0;
     glGetIntegerv(GL_MAX_VARYING_COMPONENTS, &MaxVaryingComponents);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxVaryingComponents: %i"), MaxVaryingComponents);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxVaryingComponents: %i"), MaxVaryingComponents);
 
     INT MaxVaryingVectors = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &MaxVaryingVectors);
-    debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxVaryingVectors: %i"), MaxVaryingVectors);
+    if (LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: MaxVaryingVectors: %i"), MaxVaryingVectors);
 
 	CHECK_GL_ERROR();
 

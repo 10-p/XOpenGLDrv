@@ -442,7 +442,7 @@ void UXOpenGLRenderDevice::ShaderProgram::BindUniform(CompiledShader* Specializa
 	const GLuint BlockIndex = glGetUniformBlockIndex(Specialization->ShaderProgramObject, Name);
 	if (BlockIndex == GL_INVALID_INDEX)
 	{
-		debugf(NAME_DevGraphics, TEXT("XOpenGL: invalid or unused shader var (UniformBlockIndex) %s in %s"), appFromAnsi(Name), ShaderName);
+		if (RenDev->LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: invalid or unused shader var (UniformBlockIndex) %s in %s"), appFromAnsi(Name), ShaderName);
 		if (RenDev->UseOpenGLDebug && LogLevel >= 2)
 			debugf(TEXT("XOpenGL: invalid or unused shader var (UniformBlockIndex) %s in %s"), appFromAnsi(Name), ShaderName);
 	}
@@ -454,7 +454,7 @@ void UXOpenGLRenderDevice::ShaderProgram::GetUniformLocation(CompiledShader* Spe
 	Uniform = glGetUniformLocation(Specialization->ShaderProgramObject, Name);
 	if (Uniform == GL_INVALID_INDEX)
 	{
-		debugf(NAME_DevGraphics, TEXT("XOpenGL: invalid or unused shader var (UniformLocation) %s in %s"), appFromAnsi(Name), ShaderName);
+		if (RenDev->LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: invalid or unused shader var (UniformLocation) %s in %s"), appFromAnsi(Name), ShaderName);
 		if (RenDev->UseOpenGLDebug && LogLevel >= 2)
 			debugf(TEXT("XOpenGL: invalid or unused shader var (UniformLocation) %s in %s"), appFromAnsi(Name), ShaderName);
 	}
@@ -571,7 +571,7 @@ bool UXOpenGLRenderDevice::ShaderProgram::CompileShaderFunction(GLuint ShaderFun
 			debugf(NAME_DevGraphics, TEXT("XOpenGL: Log compiling %s %s"), ShaderName, appFromAnsi(compiler_log));
 			delete[] compiler_log;
 		}
-		else debugf(NAME_DevGraphics, TEXT("XOpenGL: No compiler messages for %s %s Shader (Options %s)"), ShaderName, ShaderTypeString(FunctionType), *Options.GetShortString());
+		else if (RenDev->LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: No compiler messages for %s %s Shader (Options %s)"), ShaderName, ShaderTypeString(FunctionType), *Options.GetShortString());
 	}
 
 	return Result;
@@ -602,7 +602,7 @@ bool UXOpenGLRenderDevice::ShaderProgram::LinkShaderProgram(GLuint ShaderProgram
 		debugf(TEXT("XOpenGL: Log linking %s %s"), ShaderName, appFromAnsi(linker_log));
 		delete[] linker_log;
 	}
-	else debugf(NAME_DevGraphics, TEXT("XOpenGL: No linker messages for %s"), ShaderName);
+	else if (RenDev->LogDeviceInfo()) debugf(NAME_DevGraphics, TEXT("XOpenGL: No linker messages for %s"), ShaderName);
 
 	CHECK_GL_ERROR();
 	return Result;

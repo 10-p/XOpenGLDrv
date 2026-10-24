@@ -1003,7 +1003,8 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 	{
 		if (SplitString.Len())
 		{
-			debugf(NAME_DevLoad, TEXT("GL_EXTENSIONS(%i): %s"),i, *SplitString);
+			if (LogDeviceInfo())
+				debugf(NAME_DevLoad, TEXT("GL_EXTENSIONS(%i): %s"),i, *SplitString);
 			i++;
 		}
 	}
@@ -2306,6 +2307,7 @@ void UXOpenGLRenderDevice::Exit()
 {
 	guard(UXOpenGLRenderDevice::Exit);
 	debugf(TEXT("XOpenGL: Exit"));
+	DeviceInfoLogged = 1;
 
 	MakeCurrent();
 
@@ -2629,6 +2631,7 @@ INT	  UXOpenGLRenderDevice::LogLevel = 0;
 DWORD UXOpenGLRenderDevice::ComposeSize = 0;
 BYTE* UXOpenGLRenderDevice::Compose = NULL;
 INT   UXOpenGLRenderDevice::NumDevices = 0;
+UBOOL UXOpenGLRenderDevice::DeviceInfoLogged = 0;
 BOOL  UXOpenGLRenderDevice::SelectedGLVersion = FALSE;
 INT   UXOpenGLRenderDevice::SelectedMajorVersion = 3;
 INT   UXOpenGLRenderDevice::SelectedMinorVersion = 3;

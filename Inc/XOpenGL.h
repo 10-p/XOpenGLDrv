@@ -626,6 +626,14 @@ class UXOpenGLRenderDevice : public URenderDevice
 	SDL_Window* Window;
 #endif
 	static INT NumDevices;
+	// The extension list, the capability lines and the shader-compile messages: every one from the process's
+	// first device, from a later device only with -UFRONTLOG.
+	static UBOOL DeviceInfoLogged;
+#if XOGL_UE1_V4XX
+	inline bool LogDeviceInfo() const { return !DeviceInfoLogged || GUfrontLog; }
+#else
+	inline bool LogDeviceInfo() const { return true; }
+#endif
 	static BOOL SelectedGLVersion;
 	static INT SelectedMajorVersion;
 	static INT SelectedMinorVersion;
