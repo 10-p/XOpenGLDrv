@@ -53,6 +53,10 @@ The branch adds:
   engine hands the paletted mips instead (`SupportsTC` follows the S3TC check).
 * **Precaching uploads**: `PrecacheTexture` binds the tile program, so textures (and their transcode) are
   uploaded at level load instead of on first view.
+* **`PF_NoSmooth` per draw**: a texture has a second sampler (nearest), made on its first draw with `PF_NoSmooth`,
+  and each draw takes the sampler its flags ask for, as the engines' other render devices filter per draw. A texture
+  precached with its own flags is still drawn unsmoothed where a canvas asks for it (`Canvas.bNoSmooth`), such as
+  HP2's cut-scene bars: a tile of one black texel whose smoothed sampling blends in the texture's grey last row.
 * **Whole-buffer batches on ES**: on an OpenGL ES context (not on the web) each batch fills the vertex and
   parameter buffers whole and rotates them after the flush, as the macOS and ARM Linux builds do. WebGL refuses a
   draw whose uniform buffer is smaller than its block, so the web build keeps the partial updates.

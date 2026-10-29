@@ -772,12 +772,16 @@ class UXOpenGLRenderDevice : public URenderDevice
 	// Information about a cached texture.
 	struct FCachedTexture
 	{
-		GLuint Id;					
+		GLuint Id;
 		INT BaseMip;
 		INT MaxLevel;
 		GLuint Sampler;				// Sampler object
 		GLuint64 BindlessTexHandle;	// Bindless handle
 		INT RealtimeChangeCount{};
+		// The PF_NoSmooth draws' sampler (nearest) and its bindless handle, made on the first such draw: the
+		// filter is the draw's, so one texture can be drawn smoothed and unsmoothed.
+		GLuint NoSmoothSampler;
+		GLuint64 NoSmoothBindlessTexHandle;
 	};
 
 	// All currently cached textures.
@@ -794,6 +798,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 		FLOAT VPan{};
 		GLuint64 BindlessTexHandle{};
 		INT RealTimeChangeCount{};
+		UBOOL NoSmooth{};		// the bound sampler is the texture's NoSmoothSampler
 	} TexInfo[9];
 	
 	bool UsingBindlessTextures;		// Are we currently using bindless textures?
@@ -2129,7 +2134,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	void  SetSampler(GLuint Sampler, FTextureInfo& Info, UBOOL SkipMipmaps, UBOOL IsLightOrFogMap, UBOOL NoSmooth);
 	BOOL  UploadTexture(FTextureInfo& Info, FCachedTexture* Bind, DWORD PolyFlags, BOOL IsFirstUpload, BOOL IsBindlessTexture, BOOL PartialUpload=FALSE, INT U=0, INT V=0, INT UL=0, INT VL=0, BYTE* TextureData=nullptr);
 	void  GenerateTextureAndSampler(FCachedTexture* Bind);
-	void  BindTextureAndSampler(INT Multi, FCachedTexture* Bind);
+	void  BindTextureAndSampler(INT Multi, FCachedTexture* Bind, UBOOL NoSmooth = FALSE);
 
 	//
 	// Gamma Control

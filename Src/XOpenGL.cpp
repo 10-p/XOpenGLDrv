@@ -1424,15 +1424,20 @@ void UXOpenGLRenderDevice::Flush(UBOOL AllowPrecache)
 	TArray<GLuint> Binds;
 	for (TOpenGLMap<QWORD, FCachedTexture>::TIterator It(*BindMap); It; ++It)
 	{
-		glDeleteSamplers(1, &It.Value().Sampler);
-
 		if (UsingBindlessTextures)
 		{
 			if (It.Value().BindlessTexHandle && glIsTextureHandleResidentARB(It.Value().BindlessTexHandle))
 				glMakeTextureHandleNonResidentARB(It.Value().BindlessTexHandle);
+			if (It.Value().NoSmoothBindlessTexHandle && glIsTextureHandleResidentARB(It.Value().NoSmoothBindlessTexHandle))
+				glMakeTextureHandleNonResidentARB(It.Value().NoSmoothBindlessTexHandle);
 		}
 
+		glDeleteSamplers(1, &It.Value().Sampler);
+		if (It.Value().NoSmoothSampler)
+			glDeleteSamplers(1, &It.Value().NoSmoothSampler);
+
 		It.Value().BindlessTexHandle = 0;
+		It.Value().NoSmoothBindlessTexHandle = 0;
 		if (It.Value().Id)
 		{
 			glDeleteTextures(1, &It.Value().Id);

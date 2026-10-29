@@ -30,6 +30,14 @@
 // said bits as a tag.
 //
 #define MASKED_TEXTURE_TAG 4
+
+// PF_NoSmooth is a draw's flag, not the texture's, and applies to the diffuse texture only (not to the lightmap,
+// detail or other layers drawn with it): the draw takes the texture's NoSmoothSampler.
+static inline UBOOL DrawsNoSmooth(INT Multi, DWORD PolyFlags)
+{
+	return Multi == 0 && (PolyFlags & PF_NoSmooth);
+}
+
 static void FixCacheID(FTextureInfo& Info, DWORD PolyFlags)
 {
 	if ((PolyFlags & PF_Masked) && Info.Format == TEXF_P8)
@@ -52,12 +60,13 @@ UXOpenGLRenderDevice::GetCachedTextureInfo
 {
 	FixCacheID(Info, PolyFlags);
 	FCachedTexture* Result = BindMap->Find(Info.CacheID);
+	const UBOOL NoSmooth = DrawsNoSmooth(Multi, PolyFlags);
 
-	if (UsingBindlessTextures && Result && Result->BindlessTexHandle)
+	if (UsingBindlessTextures && Result && (NoSmooth ? Result->NoSmoothBindlessTexHandle : Result->BindlessTexHandle))
 		IsResidentBindlessTexture = TRUE;
 
 	// The texture is not bindless resident
-	IsBoundToTMU = Result && TexInfo[Multi].CurrentCacheID == Info.CacheID;
+	IsBoundToTMU = Result && TexInfo[Multi].CurrentCacheID == Info.CacheID && TexInfo[Multi].NoSmooth == NoSmooth;
 
 	// already cached but the texture data may have changed
 	if (Info.bRealtimeChanged)
@@ -854,11 +863,11 @@ void UXOpenGLRenderDevice::GenerateTextureAndSampler(FCachedTexture* Bind)
 		glGenSamplers(1, &Bind->Sampler);
 }
 
-void UXOpenGLRenderDevice::BindTextureAndSampler(INT Multi, FCachedTexture* Bind)
+void UXOpenGLRenderDevice::BindTextureAndSampler(INT Multi, FCachedTexture* Bind, UBOOL NoSmooth)
 {
 	glActiveTexture(GL_TEXTURE0 + Multi);
 	glBindTexture(GL_TEXTURE_2D, Bind->Id);
-	glBindSampler(Multi, Bind->Sampler);
+	glBindSampler(Multi, NoSmooth ? Bind->NoSmoothSampler : Bind->Sampler);
 }
 
 void UXOpenGLRenderDevice::SetTexture(INT Multi, FTextureInfo& Info, DWORD PolyFlags, FLOAT PanBias)
@@ -883,16 +892,19 @@ void UXOpenGLRenderDevice::SetTexture(INT Multi, FTextureInfo& Info, DWORD PolyF
 	BOOL IsResidentBindlessTexture = FALSE, IsBoundToTMU = FALSE, IsTextureDataStale = FALSE;
 	FCachedTexture* Bind = GetCachedTextureInfo(Multi, Info, PolyFlags, IsResidentBindlessTexture, IsBoundToTMU, IsTextureDataStale, TRUE);
 
+	const UBOOL NoSmooth = DrawsNoSmooth(Multi, PolyFlags);
+
 	// Bail out early if the texture is fully up-to-date
 	if (Bind && (IsResidentBindlessTexture || IsBoundToTMU) && !IsTextureDataStale)
 	{
-		Tex.BindlessTexHandle = Bind->BindlessTexHandle;
+		Tex.BindlessTexHandle = NoSmooth ? Bind->NoSmoothBindlessTexHandle : Bind->BindlessTexHandle;
 		STAT(unclockFast(Stats.BindCycles));
 		return;
 	}
 
     // Make current.
 	Tex.CurrentCacheID   = Info.CacheID;
+	Tex.NoSmooth         = NoSmooth;
 
 	if (!Bind)
 	{
@@ -902,18 +914,25 @@ void UXOpenGLRenderDevice::SetTexture(INT Multi, FTextureInfo& Info, DWORD PolyF
 	}
 
 	UBOOL IsNewBind = Bind->Id == 0;
-	if (IsNewBind)
+	UBOOL IsNewNoSmoothSampler = NoSmooth && Bind->NoSmoothSampler == 0;
+	if (IsNewBind || IsNewNoSmoothSampler)
 	{
 		UBOOL SkipMipmaps = (!GenerateMipMaps && Info.NumMips == 1 && !AlwaysMipmap);
 		UBOOL IsLightOrFogMap = Info.Format == TEXF_BGRA8_LM || Info.Format == TEXF_RGB10A2_LM;
-		UBOOL NoSmooth = (PolyFlags & PF_NoSmooth) && (Multi == 0);
-		GenerateTextureAndSampler(Bind);
-		BindTextureAndSampler(Multi, Bind);
-		SetSampler(Bind->Sampler, Info, SkipMipmaps, IsLightOrFogMap, NoSmooth);
+		if (IsNewBind)
+			GenerateTextureAndSampler(Bind);
+		if (IsNewNoSmoothSampler)
+			glGenSamplers(1, &Bind->NoSmoothSampler);
+		BindTextureAndSampler(Multi, Bind, NoSmooth);
+		if (IsNewBind)
+			SetSampler(Bind->Sampler, Info, SkipMipmaps, IsLightOrFogMap, FALSE);
+		// The texture's own parameters were set with its first sampler.
+		if (IsNewNoSmoothSampler)
+			SetSampler(Bind->NoSmoothSampler, Info, SkipMipmaps, FALSE, TRUE);
 	}
-	else if (Bind->BindlessTexHandle == 0)
+	else if ((NoSmooth ? Bind->NoSmoothBindlessTexHandle : Bind->BindlessTexHandle) == 0)
 	{
-		BindTextureAndSampler(Multi, Bind);
+		BindTextureAndSampler(Multi, Bind, NoSmooth);
 	}
 
 	STAT(unclockFast(Stats.BindCycles));
@@ -923,19 +942,20 @@ void UXOpenGLRenderDevice::SetTexture(INT Multi, FTextureInfo& Info, DWORD PolyF
 	if( IsNewBind || Info.bRealtimeChanged || IsTextureDataStale )
 		UploadTexture(Info, Bind, PolyFlags, IsNewBind, IsResidentBindlessTexture);
 
-    if (UsingBindlessTextures && Bind->BindlessTexHandle == 0)
+	GLuint64& BindlessTexHandle = NoSmooth ? Bind->NoSmoothBindlessTexHandle : Bind->BindlessTexHandle;
+    if (UsingBindlessTextures && BindlessTexHandle == 0)
     {
         guard(MakeTextureHandleResident);
-		Bind->BindlessTexHandle = glGetTextureSamplerHandleARB(Bind->Id, Bind->Sampler);
+		BindlessTexHandle = glGetTextureSamplerHandleARB(Bind->Id, NoSmooth ? Bind->NoSmoothSampler : Bind->Sampler);
 
-        if (!Bind->BindlessTexHandle)
+        if (!BindlessTexHandle)
         {
             GWarn->Logf(TEXT("Failed to get sampler for bindless texture: %s!"), Info.Texture ? Info.Texture->GetFullName() : TEXT("LightMap/FogMap"));
-            Bind->BindlessTexHandle = 0;
+            BindlessTexHandle = 0;
         }
         else
         {
-            glMakeTextureHandleResidentARB(Bind->BindlessTexHandle);
+            glMakeTextureHandleResidentARB(BindlessTexHandle);
         }
 
         unguard;
@@ -943,9 +963,10 @@ void UXOpenGLRenderDevice::SetTexture(INT Multi, FTextureInfo& Info, DWORD PolyF
     else if (IsNewBind)
     {
         Bind->BindlessTexHandle = 0;
+        Bind->NoSmoothBindlessTexHandle = 0;
     }
 
-	Tex.BindlessTexHandle = Bind->BindlessTexHandle;
+	Tex.BindlessTexHandle = BindlessTexHandle;
 
     CHECK_GL_ERROR();
 	STAT(unclockFast(Stats.ImageCycles));
