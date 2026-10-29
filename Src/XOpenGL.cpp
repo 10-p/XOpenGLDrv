@@ -966,15 +966,34 @@ UBOOL UXOpenGLRenderDevice::CreateOpenGLContext(void* Window, INT NewColorBytes,
 	// stay null and CheckExtensions turns off what needs them.
 #if defined(__EMSCRIPTEN_PTHREADS__)
 	// SDL owns no context on a threaded build, so the entry points come from Emscripten's resolver.
-	gladLoadGLLoader((GLADloadproc)emscripten_webgl_get_proc_address);
+	const int Loaded = gladLoadGLLoader((GLADloadproc)emscripten_webgl_get_proc_address);
 #else
-	gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
+	const int Loaded = gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
 #endif
 #else
-	if (IsES())
-		gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress);
-	else
-		gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
+	const int Loaded = IsES()
+		? gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress)
+		: gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
+#endif
+
+#if SDLBUILD
+	// The driver needs OpenGL 3.3, or OpenGL ES 3.0 (WebGL 2) on an ES profile. A context below that, or one the
+	// loader cannot read, fails here, before the first GL 3 call, so Init fails and the engine can take another device.
+	{
+		const INT NeedMinor = IsES() ? 0 : 3;
+		if (!Loaded || GLVersion.major < 3 || (GLVersion.major == 3 && GLVersion.minor < NeedMinor))
+		{
+			const ANSICHAR* Version = (Loaded && glGetString) ? (const ANSICHAR*)glGetString(GL_VERSION) : NULL;
+			GWarn->Logf(TEXT("XOpenGL: the context gives \"%s\"; this device needs OpenGL %s3.%i"),
+				Version ? appFromAnsi(Version) : TEXT("no readable version"), IsES() ? TEXT("ES ") : TEXT(""), NeedMinor);
+#if !XOGL_UE1_V4XX
+			XOpenGLDestroyContext(glContext);
+#endif
+			glContext = NULL;
+			CurrentGLContext = NULL;
+			return FALSE;
+		}
+	}
 #endif
 
 	Description = appFromAnsi((const ANSICHAR *)glGetString(GL_RENDERER));
@@ -1246,8 +1265,11 @@ UBOOL UXOpenGLRenderDevice::SetRes(INT NewX, INT NewY, INT NewColorBytes, UBOOL 
 	// (Re)init OpenGL rendering context.
 	if (glContext)
 		MakeCurrent();
-	else
-		CreateOpenGLContext(Viewport->GetWindow(), NewColorBytes);
+	else if (!CreateOpenGLContext(Viewport->GetWindow(), NewColorBytes))
+	{
+		GWarn->Logf(TEXT("XOpenGL: no usable OpenGL context"));
+		return 0;
+	}
 
 	// Flush textures.
 	Flush(1);

@@ -40,6 +40,10 @@ The branch adds:
   ES profile draws without clip planes.
 * **The windowing driver's GL context**: on v4xx the driver uses the context NSDLDrv made current and
   leaves creation, buffer swaps and deletion to the viewport.
+* **Init fails on a context it cannot use**: on SDL builds, no current context, one the GL loader cannot read, or
+  one below OpenGL 3.3 (OpenGL ES 3.0, WebGL 2, on an ES profile) fails `Init` before the first GL 3 call
+  (`XOpenGL: the context gives "<GL_VERSION>"; this device needs OpenGL 3.3`, or `OpenGL ES 3.0`), so the engine
+  can take another render device instead of crashing in this one.
 * **Threaded web build**: with the engine on a worker, the context, make-current and the GL entry points
   come from Emscripten instead of SDL.
 * **Extension detection on the web**: extensions are looked up in the context's own list, also under their
