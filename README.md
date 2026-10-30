@@ -70,6 +70,9 @@ The branch adds:
   `GL_MAX_UNIFORM_BLOCK_SIZE` is clamped, parameter arrays have at least one element, an unused fog block
   is not declared, and ES shaders use `highp`.
 * **Screenshots with antialiasing**: with `UseAA`, `ReadPixels` reads the resolved framebuffer.
+* **Screenshots as the screen shows them**: `GammaCorrectScreenshots` is False by default, since the driver sets no
+  display gamma ramp for its screenshot ramp to stand in for. Without the ramp `ReadPixels` gives the frame it reads
+  from the render framebuffer the post-process pass's gamma curve, so a shot is the picture on the screen.
 * **Device information once a process**: on v4xx the GL strings, the extension list, the capability lines, the
   VSync state, the flushes and the shader-compile messages come from the process's first device; a later one (the
   engine re-creates the device on a fullscreen switch) logs them only with the engine's `-UFRONTLOG`. Errors and
@@ -143,10 +146,15 @@ section in the game ini. The following settings are currently available:
   brightness. Setting GammaMultiplierUED to values larger than 1.0 increases
   overall brightness. Values below 1.0 reduce overall brightness.
 
-* GammaOffsetScreenshots [Default: 0.7, Type: Float]: Applies gamma correction
-  to in-game screenshots. Contrary to the aforementioned viewport gamma
-  correction, our screenshot gamma correction applies a non-linear correction to
-  the image. Higher values lead to stronger corrections.
+* GammaCorrectScreenshots [Default: False, Type: Boolean]: If set to true,
+  in-game screenshots get the GammaOffsetScreenshots correction below instead of
+  the viewport gamma the screen shows.
+
+* GammaOffsetScreenshots [Default: 0.7, Type: Float]: With
+  GammaCorrectScreenshots, applies gamma correction to in-game screenshots.
+  Contrary to the aforementioned viewport gamma correction, our screenshot gamma
+  correction applies a non-linear correction to the image. Higher values lead to
+  stronger corrections.
 
 * AlwaysMipmap [Default: False, Type: Boolean]: If set to true, XOpenGL will
   automatically create mipmaps for high-resolution textures that were saved as
