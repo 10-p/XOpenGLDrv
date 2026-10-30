@@ -148,7 +148,8 @@ section in the game ini. The following settings are currently available:
 
 * GammaCorrectScreenshots [Default: False, Type: Boolean]: If set to true,
   in-game screenshots get the GammaOffsetScreenshots correction below instead of
-  the viewport gamma the screen shows.
+  the viewport gamma the screen shows. An ini that already holds the key (the
+  section an earlier run saved) keeps its value.
 
 * GammaOffsetScreenshots [Default: 0.7, Type: Float]: With
   GammaCorrectScreenshots, applies gamma correction to in-game screenshots.
