@@ -254,7 +254,9 @@ void UXOpenGLRenderDevice::StaticConstructor()
 	UseAA = 1;
 #endif
 	UseAASmoothing = 0;
-	GammaCorrectScreenshots = 1;
+	// The driver sets no display gamma ramp (the post-process pass applies the gamma), so a shot needs no ramp of its
+	// own to match the screen.
+	GammaCorrectScreenshots = 0;
 	MacroTextures = 1;
 	BumpMaps = 1;
 	GammaMultiplier = 1.75f;
@@ -2294,6 +2296,13 @@ void UXOpenGLRenderDevice::ReadPixels(FColor* Pixels)
 #else
 		(GammaCorrectScreenshots);
 #endif
+	// The post-process pass draws the FBO on the screen through GammaCorrect: without the screenshot ramp the shot
+	// gets the same curve, so it is the picture the screen shows.
+	const UBOOL bDoScreenGamma = ReadFBO && !GammaCorrectScreenshots
+#if UNREAL_OLDUNREAL
+		&& bGammaCorrectOutput
+#endif
+		;
 
 
 	//Gamma correct screenshots
@@ -2311,7 +2320,26 @@ void UXOpenGLRenderDevice::ReadPixels(FColor* Pixels)
 			}
 		}
 	}
-    
+	else if (bDoScreenGamma)
+	{
+		const FLOAT InvGamma = 1.f / GetViewportGamma(Viewport);
+		if (Abs(InvGamma - 1.f) > 0.0001f)
+		{
+			BYTE Curve[256];
+			for (INT i = 0; i < 256; i++)
+				Curve[i] = (BYTE)Clamp(appRound(appPow(i / 255.f, InvGamma) * 255.f), 0, 255);
+			for (y = 0; y < SizeY; y++)
+			{
+				for (x = 0; x < SizeX; x++)
+				{
+					Pixels[x + y * SizeX].R = Curve[Pixels[x + y * SizeX].R];
+					Pixels[x + y * SizeX].G = Curve[Pixels[x + y * SizeX].G];
+					Pixels[x + y * SizeX].B = Curve[Pixels[x + y * SizeX].B];
+				}
+			}
+		}
+	}
+
 	unguard;
 }
 
