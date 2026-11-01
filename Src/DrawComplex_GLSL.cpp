@@ -34,8 +34,8 @@ const UXOpenGLRenderDevice::ShaderProgram::DrawCallParameterInfo UXOpenGLRenderD
 	{"vec4", "DrawColor", 0},
     {"uvec4", "TexHandles", 4},
 	{"uint", "DrawFlags", 0},
-    {"uint", "Dummy0", 0},
-    {"uint", "Dummy1", 0},
+    {"uint", "LightMapSize", 0},
+    {"uint", "LightMapClamp", 0},
     {"uint", "Dummy2", 0},
 	{ nullptr, nullptr, 0}
 };
@@ -374,6 +374,43 @@ uvec2 GetTexHandleHelper(uint DrawID, uint Index)
 	return (Index % 2u == 0u) ? Handles.xy : Handles.zw;
 }
 
+#if OPT_BicubicLightMaps
+// Cubic B-spline lightmap lookup from four bilinear taps (GPU Gems 2, chapter 20) over the written Clamp texels of
+// the power-of-two texture. Past the first and the last of them the lattice continues linearly (T[-1] = 2 T[0] - T[1]),
+// folded into the weights of the texels inside: the taps never read the padding, the result is a convex mix of
+// written texels, and at the surface's edge it is the edge texel, as with bilinear filtering, so no seam shows
+// against the next surface.
+vec4 GetLightMapTexelBicubic(uvec2 TexHandle, vec2 TexCoords, uint PackedSize, uint PackedClamp)
+{
+  vec2 Size = vec2(float(PackedSize & 0xFFFFu), float(PackedSize >> 16u));
+  vec2 Texels = vec2(float(PackedClamp & 0xFFFFu), float(PackedClamp >> 16u));
+  vec2 st = clamp(TexCoords * Size - 0.5, vec2(0.0), Texels - 1.0);
+  vec2 i = min(floor(st), max(Texels - 2.0, vec2(0.0)));
+  vec2 f = st - i;
+  vec2 f2 = f * f;
+  vec2 f3 = f2 * f;
+  vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+  vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+  vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+  vec2 w3 = f3 / 6.0;
+  // Texel i - 1 lies before the first written texel when i is 0, texel i + 2 after the last when i is Clamp - 2.
+  vec2 First = 1.0 - step(0.5, i);
+  vec2 Last = step(Texels - 2.5, i);
+  w1 += 2.0 * w0 * First;
+  w2 -= w0 * First;
+  w0 -= w0 * First;
+  w2 += 2.0 * w3 * Last;
+  w1 -= w3 * Last;
+  w3 -= w3 * Last;
+  vec2 g0 = w0 + w1;
+  vec2 g1 = w2 + w3;
+  vec2 c0 = clamp(i - 0.5 + w1 / max(g0, vec2(1e-6)), vec2(0.5), Texels - 0.5) / Size;
+  vec2 c1 = clamp(i + 1.5 + w3 / max(g1, vec2(1e-6)), vec2(0.5), Texels - 0.5) / Size;
+  return g0.y * (g0.x * GetTexel(TexHandle, TMULightMap, vec2(c0.x, c0.y)) + g1.x * GetTexel(TexHandle, TMULightMap, vec2(c1.x, c0.y)))
+       + g1.y * (g0.x * GetTexel(TexHandle, TMULightMap, vec2(c0.x, c1.y)) + g1.x * GetTexel(TexHandle, TMULightMap, vec2(c1.x, c1.y)));
+}
+#endif
+
 void main(void)
 {
   uint DrawFlags = GetDrawFlags(vDrawID);
@@ -436,7 +473,11 @@ void main(void)
 #else
   if ((DrawFlags & DF_LightMap) == DF_LightMap)
   {
+# if OPT_BicubicLightMaps
+    LightColor = GetLightMapTexelBicubic(GetTexHandleHelper(vDrawID, LightMapIndex), vLightMapCoords, GetLightMapSize(vDrawID), GetLightMapClamp(vDrawID));
+# else
     LightColor = GetTexel(GetTexHandleHelper(vDrawID, LightMapIndex), TMULightMap, vLightMapCoords);
+# endif
     // Fetch lightmap texel. Data in LightMap is in 0..127/255 range, which needs to be scaled to 0..2 range.
     LightColor.rgb =
 # if OPT_GLES

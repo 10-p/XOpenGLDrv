@@ -864,6 +864,8 @@ void UXOpenGLRenderDevice::ShaderCompilationOptions::SetOptionsForRendererConfig
 		SetOption(OPT_SimulateMultiPass);
 	if (RenDev->UseHWLighting)
 		SetOption(OPT_HWLighting);
+	if (RenDev->BicubicLightmapsActive())
+		SetOption(OPT_BicubicLightMaps);
 	if (RenDev->OpenGLVersion == GL_Core)
 		SetOption(OPT_GLCore);
 	else
@@ -916,7 +918,8 @@ AddOptionFunc(Result, L ## #x, (OptionsMask & x) ? true : false);
     ADD_OPTION(OPT_ShaderDrawParameters)
     ADD_OPTION(OPT_ClipDistance)
     ADD_OPTION(OPT_Editor)
-    
+    ADD_OPTION(OPT_BicubicLightMaps)
+
     if (Result.Len() == 0)
         AddOptionFunc(Result, TEXT("OPT_None"), true);
     return Result;

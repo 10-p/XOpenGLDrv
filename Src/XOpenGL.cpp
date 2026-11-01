@@ -194,6 +194,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 
 	new(GetClass(), TEXT("OneXBlending"), RF_Public)UBoolProperty(CPP_PROPERTY(OneXBlending), TEXT("Options"), CPF_Config);
 	new(GetClass(), TEXT("ActorXBlending"), RF_Public)UBoolProperty(CPP_PROPERTY(ActorXBlending), TEXT("Options"), CPF_Config);
+	new(GetClass(), TEXT("UseBicubicLightmaps"), RF_Public)UBoolProperty(CPP_PROPERTY(UseBicubicLightmaps), TEXT("Options"), CPF_Config);
 
 	// Experimental stuff (still being worked on).
 	new(GetClass(), TEXT("UseSRGBTextures"), RF_Public)UBoolProperty(CPP_PROPERTY(UseSRGBTextures), TEXT("Options"), CPF_Config);
@@ -281,6 +282,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 
 	OneXBlending = 1;
 	ActorXBlending = 1;
+	UseBicubicLightmaps = 1;
 
 	MaxTextureSize = 4096;
 #if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
@@ -656,6 +658,7 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 
 	// Init shaders
 	InitShaders();
+	LogLightmapFilter();
 
 	const auto FrameState = FrameStateBuffer.GetElementPtr(0);
 	check(FrameState);
@@ -1546,8 +1549,29 @@ UBOOL UXOpenGLRenderDevice::Exec(const TCHAR* Cmd, FOutputDevice& Ar)
 		CurrentGLContext = NULL;
 		return 1;
 	}
+	else if (ParseCommand(&Cmd, TEXT("BICUBICLIGHTMAPS")))
+	{
+		// BICUBICLIGHTMAPS [0|1] sets UseBicubicLightmaps for this run (no argument toggles it) and rebuilds the
+		// shaders; the ini keeps its value.
+		while (*Cmd == ' ' || *Cmd == '\t')
+			Cmd++;
+		if (*Cmd == 0)
+			UseBicubicLightmaps = !UseBicubicLightmaps;
+		else
+			UseBicubicLightmaps = (*Cmd == '1' || !appStrnicmp(Cmd, TEXT("TRUE"), 4) || !appStrnicmp(Cmd, TEXT("ON"), 2));
+		PostEditChange();
+		LogLightmapFilter();
+		Ar.Logf(TEXT("UseBicubicLightmaps=%s"), UseBicubicLightmaps ? TEXT("True") : TEXT("False"));
+		return 1;
+	}
 	return 0;
 	unguard;
+}
+
+void UXOpenGLRenderDevice::LogLightmapFilter()
+{
+	const TCHAR* Filter = BicubicLightmapsActive() ? TEXT("bicubic") : NoFiltering ? TEXT("unfiltered") : TEXT("bilinear");
+	debugf(NAME_Init, TEXT("XOpenGL: lightmap filter %s (UseBicubicLightmaps=%s)"), Filter, UseBicubicLightmaps ? TEXT("True") : TEXT("False"));
 }
 
 void UXOpenGLRenderDevice::UpdateCoords(FSceneNode* Frame)

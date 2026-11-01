@@ -69,6 +69,14 @@ The branch adds:
 * **Strict-driver robustness** (AMD/Mesa, ANGLE): uniform blocks match their std140 size, an out-of-range
   `GL_MAX_UNIFORM_BLOCK_SIZE` is clamped, parameter arrays have at least one element, an unused fog block
   is not declared, and ES shaders use `highp`.
+* **Bicubic lightmaps**: with `UseBicubicLightmaps` (True by default) the BSP shader reads the lightmap with a
+  cubic B-spline filter built from four bilinear taps over the lightmap's written `UClamp` x `VClamp` texels: past
+  its first and last texel the lattice continues linearly, folded into the weights of the texels inside, so the
+  uninitialised padding of the power-of-two texture is never read and a surface's edge keeps its edge texel (no
+  seam against the next surface). The option is a shader
+  specialization (`OPT_BicubicLightMaps`); `Init` logs `XOpenGL: lightmap filter bicubic|bilinear
+  (UseBicubicLightmaps=...)`, and the console command `BICUBICLIGHTMAPS [0|1]` sets it for the run (no argument
+  toggles it) without writing the ini.
 * **Screenshots with antialiasing**: with `UseAA`, `ReadPixels` reads the resolved framebuffer.
 * **Screenshots as the screen shows them**: `GammaCorrectScreenshots` is False by default, since the driver sets no
   display gamma ramp for its screenshot ramp to stand in for. Without the ramp `ReadPixels` gives the frame it reads
@@ -186,6 +194,13 @@ section in the game ini. The following settings are currently available:
   set to a non-zero value, this setting can increase the level of detail on
   certain meshes and surfaces. Detail texturing does, however, reduce the game
   frame rate.
+
+* UseBicubicLightmaps [Default: True, Type: Boolean]: If set to true, XOpenGL
+  samples lightmaps with a cubic B-spline filter instead of bilinear filtering.
+  Static lighting then shows no texel lattice or diamond shapes around small
+  light pools; hard shadow edges soften by about one lightmap texel. It costs
+  three more texture reads for every lightmapped pixel. It has no effect with
+  NoFiltering.
 
 * MacroTextures [Default: True, Type: Boolean]: If set to true, XOpenGL will
   apply macro textures to applicable surfaces and meshes. Macro textures can
