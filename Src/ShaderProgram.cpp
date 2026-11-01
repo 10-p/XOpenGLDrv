@@ -767,11 +767,7 @@ void UXOpenGLRenderDevice::ShaderProgram::RecompileShader(ShaderCompilationOptio
 	if (!VertexShaderFunc || !FragmentShaderFunc)
 		return;
 
-	if (CurrentSpecialization)
-	{
-		DeleteShader();
-		delete CurrentSpecialization;
-	}
+	DeleteShader();
 	CurrentSpecialization = new CompiledShader;
 	CurrentSpecialization->Options = Options;
 	CurrentSpecialization->ShaderName = FString::Printf(TEXT("%s%s"), ShaderName, *Options.GetShortString());
@@ -817,26 +813,28 @@ bool UXOpenGLRenderDevice::ShaderProgram::BuildShaderProgram(CompiledShader* Spe
 	return true;
 }
 
+// Deletes the current specialization, its program object included, and leaves none current.
 void UXOpenGLRenderDevice::ShaderProgram::DeleteShader()
 {
 	if (!CurrentSpecialization)
 		return;
 
-	if (!CurrentSpecialization->ShaderProgramObject)
-		return;
+	if (CurrentSpecialization->ShaderProgramObject)
+	{
+		if (CurrentSpecialization->VertexShaderObject)
+			glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->VertexShaderObject);
 
-	if (CurrentSpecialization->VertexShaderObject)
-		glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->VertexShaderObject);
+		if (CurrentSpecialization->GeoShaderObject)
+			glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->GeoShaderObject);
 
-	if (CurrentSpecialization->GeoShaderObject)
-		glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->GeoShaderObject);
+		if (CurrentSpecialization->FragmentShaderObject)
+			glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->FragmentShaderObject);
 
-	if (CurrentSpecialization->FragmentShaderObject)
-		glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->FragmentShaderObject);
-
-	glDeleteProgram(CurrentSpecialization->ShaderProgramObject);
+		glDeleteProgram(CurrentSpecialization->ShaderProgramObject);
+	}
 
 	delete CurrentSpecialization;
+	CurrentSpecialization = nullptr;
 }
 
 UXOpenGLRenderDevice::ShaderProgram::~ShaderProgram()
