@@ -2005,7 +2005,6 @@ class UXOpenGLRenderDevice : public URenderDevice
 	void  Exit();
 	void  Flush(UBOOL AllowPrecache);
 	UBOOL Exec(const TCHAR* Cmd, FOutputDevice& Ar);
-	void  LogLightmapFilter();
 	void  Lock(FPlane InFlashScale, FPlane InFlashFog, FPlane ScreenClear, DWORD RenderLockFlags, BYTE* InHitData, INT* InHitSize);
 	void  Unlock(UBOOL Blit);
 #if XOGL_HP2

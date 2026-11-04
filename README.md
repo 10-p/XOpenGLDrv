@@ -73,10 +73,9 @@ The branch adds:
   cubic B-spline filter built from four bilinear taps over the lightmap's written `UClamp` x `VClamp` texels: past
   its first and last texel the lattice continues linearly, folded into the weights of the texels inside, so the
   uninitialised padding of the power-of-two texture is never read and a surface's edge keeps its edge texel (no
-  seam against the next surface). The option is a shader
-  specialization (`OPT_BicubicLightMaps`); `Init` logs `XOpenGL: lightmap filter bicubic|bilinear
-  (UseBicubicLightmaps=...)`, and the console command `BICUBICLIGHTMAPS [0|1]` sets it for the run (no argument
-  toggles it) without writing the ini.
+  seam against the next surface). The ini key is read at start-up and selects a shader specialization
+  (`OPT_BicubicLightMaps`); `Init` logs `XOpenGL: lightmap filter bicubic|bilinear|unfiltered
+  (UseBicubicLightmaps=...)`.
 * **Screenshots with antialiasing**: with `UseAA`, `ReadPixels` reads the resolved framebuffer.
 * **Screenshots as the screen shows them**: `GammaCorrectScreenshots` is False by default, since the driver sets no
   display gamma ramp for its screenshot ramp to stand in for. Without the ramp `ReadPixels` gives the frame it reads
