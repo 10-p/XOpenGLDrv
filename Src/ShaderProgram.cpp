@@ -767,11 +767,7 @@ void UXOpenGLRenderDevice::ShaderProgram::RecompileShader(ShaderCompilationOptio
 	if (!VertexShaderFunc || !FragmentShaderFunc)
 		return;
 
-	if (CurrentSpecialization)
-	{
-		DeleteShader();
-		delete CurrentSpecialization;
-	}
+	DeleteShader();
 	CurrentSpecialization = new CompiledShader;
 	CurrentSpecialization->Options = Options;
 	CurrentSpecialization->ShaderName = FString::Printf(TEXT("%s%s"), ShaderName, *Options.GetShortString());
@@ -817,26 +813,28 @@ bool UXOpenGLRenderDevice::ShaderProgram::BuildShaderProgram(CompiledShader* Spe
 	return true;
 }
 
+// Deletes the current specialization, its program object included, and leaves none current.
 void UXOpenGLRenderDevice::ShaderProgram::DeleteShader()
 {
 	if (!CurrentSpecialization)
 		return;
 
-	if (!CurrentSpecialization->ShaderProgramObject)
-		return;
+	if (CurrentSpecialization->ShaderProgramObject)
+	{
+		if (CurrentSpecialization->VertexShaderObject)
+			glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->VertexShaderObject);
 
-	if (CurrentSpecialization->VertexShaderObject)
-		glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->VertexShaderObject);
+		if (CurrentSpecialization->GeoShaderObject)
+			glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->GeoShaderObject);
 
-	if (CurrentSpecialization->GeoShaderObject)
-		glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->GeoShaderObject);
+		if (CurrentSpecialization->FragmentShaderObject)
+			glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->FragmentShaderObject);
 
-	if (CurrentSpecialization->FragmentShaderObject)
-		glDetachShader(CurrentSpecialization->ShaderProgramObject, CurrentSpecialization->FragmentShaderObject);
-
-	glDeleteProgram(CurrentSpecialization->ShaderProgramObject);
+		glDeleteProgram(CurrentSpecialization->ShaderProgramObject);
+	}
 
 	delete CurrentSpecialization;
+	CurrentSpecialization = nullptr;
 }
 
 UXOpenGLRenderDevice::ShaderProgram::~ShaderProgram()
@@ -866,6 +864,8 @@ void UXOpenGLRenderDevice::ShaderCompilationOptions::SetOptionsForRendererConfig
 		SetOption(OPT_SimulateMultiPass);
 	if (RenDev->UseHWLighting)
 		SetOption(OPT_HWLighting);
+	if (RenDev->BicubicLightmapsActive())
+		SetOption(OPT_BicubicLightMaps);
 	if (RenDev->OpenGLVersion == GL_Core)
 		SetOption(OPT_GLCore);
 	else
@@ -918,7 +918,8 @@ AddOptionFunc(Result, L ## #x, (OptionsMask & x) ? true : false);
     ADD_OPTION(OPT_ShaderDrawParameters)
     ADD_OPTION(OPT_ClipDistance)
     ADD_OPTION(OPT_Editor)
-    
+    ADD_OPTION(OPT_BicubicLightMaps)
+
     if (Result.Len() == 0)
         AddOptionFunc(Result, TEXT("OPT_None"), true);
     return Result;

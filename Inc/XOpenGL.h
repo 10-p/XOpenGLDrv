@@ -570,6 +570,7 @@ class UXOpenGLRenderDevice : public URenderDevice
 	BITFIELD UseHWLighting;
 	BITFIELD UseHWClipping;
 	BITFIELD UseEnhancedLightmaps;
+	BITFIELD UseBicubicLightmaps;
 	BITFIELD OneXBlending;
 	BITFIELD ActorXBlending;
 
@@ -600,6 +601,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 	// varyings, #version 300 es).
 	inline bool IsES() const { return OpenGLVersion == GL_ES || OpenGLVersion == GL_ES_WEBGL; }
 	inline bool IsWebGL() const { return OpenGLVersion == GL_ES_WEBGL; }
+	// The bicubic lightmap lookup builds on the lightmap sampler's bilinear filtering, which NoFiltering leaves unset.
+	inline bool BicubicLightmapsActive() const { return UseBicubicLightmaps && !NoFiltering; }
 	BYTE ParallaxVersion;
 	BYTE UseVSync;
 
@@ -1333,7 +1336,10 @@ class UXOpenGLRenderDevice : public URenderDevice
 
 			// WebGL 2 / GLES 3.0 (plain varyings, #version 300 es); set together with OPT_GLES in the ES_WEBGL
 			// profile.
-			OPT_GLES_WEBGL           = 0x010000
+			OPT_GLES_WEBGL           = 0x010000,
+
+			// Lightmaps sampled with the cubic B-spline filter (UseBicubicLightmaps)
+			OPT_BicubicLightMaps     = 0x020000
         };
 
 		ShaderCompilationOptions(DWORD ShaderOptions)
@@ -1824,8 +1830,8 @@ class UXOpenGLRenderDevice : public URenderDevice
 		glm::vec4 DrawColor;
 		glm::uint64 TexHandles[8]; // mirrored as 4 uvec2s
 		glm::uint32 DrawFlags;
-		glm::uint32 Dummy0;
-		glm::uint32 Dummy1;
+		glm::uint32 LightMapSize;  // the lightmap texture's size, U | V << 16
+		glm::uint32 LightMapClamp; // its written texels (UClamp, VClamp), U | V << 16
 		glm::uint32 Dummy2;
 	};
 	static const ShaderProgram::DrawCallParameterInfo DrawComplexParametersInfo[];

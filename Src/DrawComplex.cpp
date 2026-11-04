@@ -144,7 +144,16 @@ void UXOpenGLRenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& S
 #endif
 
 	if (Surface.LightMap)
+	{
 		SetTextureHelper(this, LightMapIndex, *Surface.LightMap, PF_None, DrawFlags, ShaderDrawFlags::DF_LightMap, -0.5, &DrawCallParams->LightMapUV, nullptr, DrawCallParams->TexHandles);
+
+		// The bicubic lookup reads only the written UClamp x VClamp texels of the power-of-two texture.
+		const FTextureInfo& LightMap = *Surface.LightMap;
+		const DWORD UClamp = LightMap.UClamp > 0 ? LightMap.UClamp : LightMap.USize;
+		const DWORD VClamp = LightMap.VClamp > 0 ? LightMap.VClamp : LightMap.VSize;
+		DrawCallParams->LightMapSize  = (static_cast<DWORD>(LightMap.USize) & 0xFFFF) | (static_cast<DWORD>(LightMap.VSize) << 16);
+		DrawCallParams->LightMapClamp = (UClamp & 0xFFFF) | (VClamp << 16);
+	}
 
 	if (Surface.FogMap && Surface.FogMap->Mips[0] && Surface.FogMap->Mips[0]->DataPtr)
 		SetTextureHelper(this, FogMapIndex, *Surface.FogMap, PF_AlphaBlend, DrawFlags, ShaderDrawFlags::DF_FogMap, -0.5, &DrawCallParams->FogMapUV, nullptr, DrawCallParams->TexHandles);
@@ -277,7 +286,8 @@ UXOpenGLRenderDevice::DrawComplexProgram::DrawComplexProgram(const TCHAR* Name, 
 		ShaderCompilationOptions::OPT_DistanceFog |
 		ShaderCompilationOptions::OPT_ClipDistance |
 		ShaderCompilationOptions::OPT_Editor |
-		ShaderCompilationOptions::OPT_SimulateMultiPass;
+		ShaderCompilationOptions::OPT_SimulateMultiPass |
+		ShaderCompilationOptions::OPT_BicubicLightMaps;
 }
 
 void UXOpenGLRenderDevice::DrawComplexProgram::CreateInputLayout()

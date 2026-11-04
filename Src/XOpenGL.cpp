@@ -194,6 +194,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 
 	new(GetClass(), TEXT("OneXBlending"), RF_Public)UBoolProperty(CPP_PROPERTY(OneXBlending), TEXT("Options"), CPF_Config);
 	new(GetClass(), TEXT("ActorXBlending"), RF_Public)UBoolProperty(CPP_PROPERTY(ActorXBlending), TEXT("Options"), CPF_Config);
+	new(GetClass(), TEXT("UseBicubicLightmaps"), RF_Public)UBoolProperty(CPP_PROPERTY(UseBicubicLightmaps), TEXT("Options"), CPF_Config);
 
 	// Experimental stuff (still being worked on).
 	new(GetClass(), TEXT("UseSRGBTextures"), RF_Public)UBoolProperty(CPP_PROPERTY(UseSRGBTextures), TEXT("Options"), CPF_Config);
@@ -281,6 +282,7 @@ void UXOpenGLRenderDevice::StaticConstructor()
 
 	OneXBlending = 1;
 	ActorXBlending = 1;
+	UseBicubicLightmaps = 1;
 
 	MaxTextureSize = 4096;
 #if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
@@ -656,6 +658,9 @@ UBOOL UXOpenGLRenderDevice::Init(UViewport* InViewport, INT NewX, INT NewY, INT 
 
 	// Init shaders
 	InitShaders();
+	debugf(NAME_Init, TEXT("XOpenGL: lightmap filter %s (UseBicubicLightmaps=%s)"),
+		BicubicLightmapsActive() ? TEXT("bicubic") : NoFiltering ? TEXT("unfiltered") : TEXT("bilinear"),
+		UseBicubicLightmaps ? TEXT("True") : TEXT("False"));
 
 	const auto FrameState = FrameStateBuffer.GetElementPtr(0);
 	check(FrameState);

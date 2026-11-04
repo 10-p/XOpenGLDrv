@@ -228,10 +228,12 @@ void UXOpenGLRenderDevice::SetSampler(GLuint Sampler, FTextureInfo& Info, UBOOL 
 #endif // ENGINE_VERSION
 
 	// Also set for light and fogmaps.
+	// The clamp goes on the sampler: a bound sampler, as a bindless handle made with it, takes the place of the
+	// texture's own wrap state.
     if ( IsLightOrFogMap )
     {
-        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+        glSamplerParameteri( Sampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+        glSamplerParameteri( Sampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
     }
 
 	// Set texture sampler state.
@@ -926,9 +928,8 @@ void UXOpenGLRenderDevice::SetTexture(INT Multi, FTextureInfo& Info, DWORD PolyF
 		BindTextureAndSampler(Multi, Bind, NoSmooth);
 		if (IsNewBind)
 			SetSampler(Bind->Sampler, Info, SkipMipmaps, IsLightOrFogMap, FALSE);
-		// The texture's own parameters were set with its first sampler.
 		if (IsNewNoSmoothSampler)
-			SetSampler(Bind->NoSmoothSampler, Info, SkipMipmaps, FALSE, TRUE);
+			SetSampler(Bind->NoSmoothSampler, Info, SkipMipmaps, IsLightOrFogMap, TRUE);
 	}
 	else if ((NoSmooth ? Bind->NoSmoothBindlessTexHandle : Bind->BindlessTexHandle) == 0)
 	{
