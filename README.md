@@ -76,6 +76,8 @@ The branch adds:
   seam against the next surface). The ini key is read at start-up and selects a shader specialization
   (`OPT_BicubicLightMaps`); `Init` logs `XOpenGL: lightmap filter bicubic|bilinear|unfiltered
   (UseBicubicLightmaps=...)`.
+* **Light and fog maps clamp to their edge**: the clamp is a parameter of their sampler objects, since a draw's
+  bound sampler (or the bindless handle made with it) takes the place of the texture's own wrap state.
 * **Screenshots with antialiasing**: with `UseAA`, `ReadPixels` reads the resolved framebuffer.
 * **Screenshots as the screen shows them**: `GammaCorrectScreenshots` is False by default, since the driver sets no
   display gamma ramp for its screenshot ramp to stand in for. Without the ramp `ReadPixels` gives the frame it reads
